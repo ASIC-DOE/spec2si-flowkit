@@ -239,6 +239,34 @@ TERM_OF = {}
 #: The wide trunk approaches ON-GRID, where the band sees everything.
 MAX_STUB = 1.99
 
+#: ⛔⛔ **AND ON THE 28 nm TILE THIS CAP IS DEAD CODE.** Both places that
+#: apply it -- `Maze.search`'s start window and `_reach`'s goal side -- are
+#: gated on `g.net_w(base, net) > g.rule[base][0]`, i.e. on the net being
+#: WIDER than the tier minimum. `Tracks.widths` comes from the consumer's
+#: width plan, and spec2si-tsmc28's is EMPTY, so no net is ever wide and
+#: neither gate ever fires.
+#:
+#: ▶ MEASURED on the sub-ADC tile 2026-08-27: **48 off-grid runs longer than
+#: this constant**, the longest 102.580 um (`SAMP` on M8), `Vrefp` 62.400 on
+#: M6, and eight `Dout` nets at 50.020 each. An off-grid run is drawn at the
+#: pin's own coordinate, so a 50 um one is a TRUNK on no track at all -- and
+#: two of them at adjacent `cap_dac_8bit_1` decode pins sit 0.210 um apart,
+#: the child's own pitch, leaving 0.050 where `M6.S.13` wants 0.080. That is
+#: ten DRC markers (each firing `M6.S.2` as well) and the whole track-grid
+#: legality argument does not reach them, because they are not on the grid.
+#:
+#: ⚠️⚠️ **ENFORCING IT UNCONDITIONALLY IS NOT A ONE-LINE FIX, AND THAT IS
+#: MEASURED TOO.** With both gates removed:
+#:   * spec2si-tsmc65 still passes 136/136 and MOVES -- 27973.3 um in 613
+#:     cuts against 28038.7 in 603 -- so it is a real control here, not the
+#:     vacuous kind;
+#:   * spec2si-tsmc28 DIES in `contact`: *"Vinp: a drawn segment
+#:     (-0.025, 23.0, 0.025, 30.075, M5) is outside the tile"*. A tile PORT
+#:     sits ON the die boundary, and capping the arrival makes the router
+#:     reach it by a stub that leaves the die.
+#: ▶ So the port case has to be handled first -- the same class that made
+#: `Goal.at` opt-in per terminal. Do not simply delete the gates.
+
 #: metal tier -> the via layer joining it to the tier above.
 VIA_OF = {31: 51, 32: 52, 33: 53, 34: 54, 35: 55, 36: 56, 37: 57, 38: 58}
 

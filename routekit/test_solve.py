@@ -197,14 +197,18 @@ def test_a_pin_goals_stub_runs_ONTO_THE_PIN_not_into_the_lane():
     # point span means "unspecified", not "a lane of zero width", so the
     # lane guard must not fire on it -- the 65 nm corpus found exactly this
     # regression when the guard was written without the width test.
-    far = lx + 2.6
-    assert abs(stub_for(far, far, far) - 2.6) < 1e-9, (
+    # ⚠️ INSIDE `MAX_STUB` -- the cap bounds every arrival now, span or no
+    # span, and a fixture beyond it would be testing the cap instead.
+    far = lx + 1.6
+    assert abs(stub_for(far, far, far) - 1.6) < 1e-9, (
         "a caller that supplies no span must be unaffected by the lane guard")
 
-    # A SPAN, and the riser standing 2.6 um along it from the terminal.
+    # A SPAN, and the riser standing 1.6 um along it from the terminal.
     # The old expression clamped into the lane and drew nothing.
-    at = lx + 2.6
-    assert abs(stub_for(lx - 3.0, lx + 3.0, at) - 2.6) < 1e-9, (
+    # ⚠️ INSIDE `MAX_STUB`. The cap refuses an arrival further than that
+    # from its terminal, so a fixture beyond it tests the cap, not the stub.
+    at = lx + 1.6
+    assert abs(stub_for(lx - 3.0, lx + 3.0, at) - 1.6) < 1e-9, (
         "the stub must run from the riser onto the terminal")
 
     # and a terminal on the other side of the riser, so the sign is tested
