@@ -576,7 +576,35 @@ class Tracks:
             # net at `rule[t][0]`, so this is the tier's minimum becoming
             # the default rather than a new kind of width.
             w = (ca.TIER_RULE[t][0] if t in GRID_RULE_MIN else wire_w(t))
+            # ⛔⛔ **THE SPACE A WIRE OF THIS WIDTH OWES, NOT THE TIER'S
+            # MINIMUM.** This read `ca.TIER_RULE[t][1]`, which is the space
+            # between two MINIMUM-WIDTH lines -- and `w` above is the VIA PAD,
+            # far above the width thresholds every modern spacing rule keys
+            # on. Measured against the 28 nm deck, on the sub-ADC tile's first
+            # DRC over drawn signal metal:
+            #
+            #   M6.S.13  space >= 0.080 when a line is wider than 0.130
+            #            wire_w(M6) = 0.160, pitch gave 0.050    47 markers
+            #   M6.S.2   space >= 0.060 when wider than 0.090     46 markers
+            #   M7.S.2   space >= 0.120 when wider than 0.200
+            #            wire_w(M7) = 0.400, pitch gave 0.100    75 markers
+            #
+            # ▶ 168 of 654, and every one of them is two adjacent tracks: the
+            # grid itself was illegal, so no amount of routing could avoid it.
+            # ⚠️ AND THE RIGHT NUMBERS WERE ALREADY WRITTEN DOWN, in
+            # `tile_abstract.via_pad`'s own table: M6 PITCH 0.240, M7 0.520 --
+            # against the 0.210 and 0.500 this produced.
+            # ⚠️ `space_between` is the adapter's, and an adapter that does
+            # not have it keeps the old number exactly.
+            # ⚠️ BY NAME. `TIER_RULE`/`TIER_AXIS` are keyed by the numeric
+            # tier and `space_between` takes the tier's NAME -- the card
+            # groups by metal family and `_fam` looks the name up. Passing
+            # the number raises `KeyError: no metal family on the card lists
+            # 35`, and the test stub took a number so 100 tests passed on a
+            # call that could never run.
             s = ca.TIER_RULE[t][1]
+            if hasattr(ca, "space_between"):
+                s = max(s, float(ca.space_between(_name(t), w, w)))
             pitch = w + s
             horiz = ca.TIER_AXIS[t] == "H"
             base = y1 if horiz else x1
