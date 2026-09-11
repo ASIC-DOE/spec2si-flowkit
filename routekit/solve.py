@@ -777,6 +777,31 @@ class Tracks:
         illegal, the net cannot reach its own pin, and the maze searches the
         die to exhaustion proving it. The width belongs to the trunk, which is
         where the ohms are.
+
+        ⛔⛔ AND THIS IS WHERE THE UNION FIX STOPS, MEASURED 2026-09-11 AND
+        REVERTED. `_merged_w` gives a query the width of the polygon it joins,
+        but a query can only be charged against neighbours on the tracks
+        `bounds` actually scans -- and that set comes from here. A lane STEP is
+        off-grid by construction (the second lane is not on the lattice), so
+        this returns 0, `bounds` looks at that one track, and the foreign wire
+        the union comes too close to is on a DIFFERENT track and is never seen.
+
+        The attempt: thread the route's own union into `Route.legal` as a width
+        floor (`bounds(wmin=)`), so the acceptance gate re-asks at 0.240 rather
+        than 0.140. It is the right gate -- "the search is not the gate" -- and
+        it did change the board (23315.6 -> 23318.5 um of wire, 448 -> 450
+        cuts, 144/144 either way). It did NOT move the route it was aimed at:
+        `code7_raw` came back byte-identical at the target, because the claim
+        is off-grid, the band is 0, and `code8_raw` is one track away. And the
+        board it did change came back with `VIA6.W.1` x2 that were not there
+        before, so the net effect was DRC 19 -> 21.
+
+        ▶ SO THE NEXT ATTEMPT IS NOT "wmin harder". The blind spot is the TRACK
+        SET, not the width, and widening it here is the one thing this
+        docstring already refuses for a reason that is still true: a band
+        around a landing run walls a terminal off its own pin. A union needs
+        its own reach -- the tracks its actual metal covers -- without becoming
+        a band. Nothing measured yet says that is cheap.
         """
         if net is None:
             return 0
