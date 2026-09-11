@@ -478,6 +478,9 @@ class Tracks:
         # `sp` is the clearance THAT PIECE demands, which is not the tier's for
         # everything on the die -- see below.
         self.occ = {}
+        #: (tier, net) that has ever filed a claim -- the superset
+        #: guard `_merged_w` uses to stay out of the hot loop.
+        self._own = set()
         self.rule = {}
         x1, y1, x2, y2 = span or self.die(snap)
         self.span = (x1, y1, x2, y2)
@@ -676,16 +679,92 @@ class Tracks:
             return self.rule[t][0]
         return self.net_w(t, net)
 
-    def _ask_w(self, t, net, co):
+    def _ask_w(self, t, net, co, k=None, lo=None, hi=None):
         """The width the ASKING metal of a query would draw -- `run_w`'s
         off-grid test, read from the query's own `co` (a terminal leg's `co`
-        is the pin's coordinate, which is no track's centre)."""
+        is the pin's coordinate, which is no track's centre).
+
+        ⭐ AND THEN THE WIDTH OF THE POLYGON IT JOINS. Given `k`/`lo`/`hi` the
+        answer comes from `_merged_w`: the deck sees ONE shape where this net's
+        own metal touches, and the wide-metal rule is charged on that shape.
+        A caller that cannot say where or how far the query runs gets the wire
+        width, which is what every caller got before this existed.
+        """
         if net is None:
             return self.rule[t][0]
         if co is not None and \
                 abs(co - self.centre(t, self.index(t, co))) > 1e-9:
             return self.rule[t][0]
-        return self.net_w(t, net)
+        w = self.net_w(t, net)
+        if lo is None or hi is None or (k is None and co is None):
+            return w
+        return self._merged_w(t, net, self.centre(t, k) if co is None else co,
+                              w, lo, hi)
+
+    def _merged_w(self, t, net, c, w, lo, hi):
+        """The across-width of the POLYGON a query at `c` would be part of.
+
+        ⛔⛔ THE WIDE RULE MEASURES A SHAPE AND THIS ROUTER ONLY EVER OFFERED
+        IT A WIRE. Two claims of the SAME net never conflict -- correctly, they
+        merge -- so nothing ever asked what they merge INTO. Measured on a
+        65 nm chip, where it was the die's only geometric DRC result:
+        `code7_raw` came down its M6 climb onto M5 lane 7.440, ran 0.48 um
+        west, and stepped up to lane 7.540 through a 0.100-tall M6 jumper. The
+        two M5 runs overlap by 0.040, so DRC sees one shape **0.240 tall** --
+        past `M5_S_2_W` 0.200 -- running 0.670 um, past `M5_S_2_L` 0.380, at
+        **0.100** from `code8_raw`, where `M5.S.2` wants 0.120. Every query
+        along the way was legal: each wire is 0.140, and 0.100 is the
+        thin-tier minimum.
+
+        ⭐ TOUCHING, NOT NEARBY. Only same-net metal whose across extent meets
+        this query's, and only where the two actually run PARALLEL: no
+        along-overlap is no union, exactly as two shapes that never meet are
+        two polygons. Merged transitively, because a chain of lane steps is
+        one shape too.
+
+        ⚠ CENTRED ON THE QUERY, which over-states by up to half the step. The
+        pair test works from `c` and a symmetric half-width, so a union that
+        grew on one side is charged as though it grew on both. That is
+        conservative in the one direction that cannot admit a violation, and
+        the alternative is threading a second coordinate through `free`,
+        `blockers`, `covers` and `bounds` for a few hundredths of a micron.
+
+        ⚠ AND THIS IS THE ROUTER'S HOTTEST LOOP. `_own` is a SUPERSET guard
+        kept by `claim`: a net that has never claimed on this tier cannot merge
+        with anything there, which is one set lookup instead of a scan. It may
+        go stale on `release` -- a stale yes costs the scan and returns the
+        same answer, a stale no cannot happen.
+        """
+        if (t, net) not in self._own:
+            return w
+        me = [c - w / 2.0, c + w / 2.0]
+        iv = []
+        for kk in range(self.index(t, c - w), self.index(t, c + w) + 1):
+            for e in self.occ.get((t, kk), ()):
+                if e[2] != net:
+                    continue
+                mlo = e[7] if len(e) > 7 else e[0]
+                mhi = e[8] if len(e) > 8 else e[1]
+                if min(hi, mhi) - max(lo, mlo) <= 1e-9:
+                    continue                  # no parallel metal, no union
+                cc = e[4] if len(e) > 4 else None
+                we = e[6] if len(e) > 6 else self.rule[t][0]
+                if isinstance(cc, tuple):
+                    iv.append([cc[0], cc[1]])
+                else:
+                    ce = self.centre(t, kk) if cc is None else cc
+                    iv.append([ce - we / 2.0, ce + we / 2.0])
+        if not iv:
+            return w
+        grew = True
+        while grew:
+            grew = False
+            for q in iv:
+                if q[0] <= me[1] + 1e-9 and q[1] >= me[0] - 1e-9:
+                    a, b = min(me[0], q[0]), max(me[1], q[1])
+                    if b - a > me[1] - me[0] + 1e-9:
+                        me, grew = [a, b], True
+        return max(w, round(me[1] - me[0], 6))
 
     def band_at(self, t, net, k, co):
         """`band`, for a query at track `k` whose metal sits at `co`.
@@ -710,12 +789,29 @@ class Tracks:
         return max(self.rule[t][0], self.widths.get(net, 0.0))
 
     def clear_for(self, t, w):
-        """The clearance a wire of width `w` owes -- `ca.WIDE_RULE` where it
-        applies, and that rule is why a wide net cannot simply be a wider
-        rectangle on the same track: it also pushes its neighbours further
-        away."""
-        return (ca.WIDE_RULE[2] if w > ca.WIDE_RULE[0] + 1e-9
-                else self.rule[t][1])
+        """The clearance a wire of width `w` owes -- the widest step of the
+        deck's wide-metal LADDER that applies, and that rule is why a wide net
+        cannot simply be a wider rectangle on the same track: it also pushes
+        its neighbours further away.
+
+        ⛔⛔ A LADDER, NOT A STEP, AND READING ONE STEP COST A DRC RESULT.
+        `ca.WIDE_RULE` is `Mx.S.2.1` -- width > 0.400 owes 0.160 -- and the
+        65 nm deck carries `Mx.S.2` BELOW it: **width > 0.200 owes 0.120**,
+        identically for M5, M6 and M7. Everything this router draws is 0.140
+        across, so the missing step looked unreachable. It is not: the object
+        the rule measures is a POLYGON, and a net stepping between two lanes
+        closer together than its own wire width unions to 0.240. See
+        `_merged_w`.
+
+        ⚠ THROUGH AN ADAPTER SEAM, so a consumer that has not measured its own
+        ladder behaves exactly as it always did -- `ca.WIDE_STEPS` when the
+        adapter offers one, `(ca.WIDE_RULE,)` when it does not.
+        """
+        out = self.rule[t][1]
+        for step in (getattr(ca, "WIDE_STEPS", None) or (ca.WIDE_RULE,)):
+            if w > step[0] + 1e-9 and step[2] > out:
+                out = step[2]
+        return out
 
     def band(self, t, net):
         """How many tracks EACH SIDE of its own a net of this width takes.
@@ -912,7 +1008,7 @@ class Tracks:
         metal lands on. At the tier minimum the band is one track and this is
         the query it has always been.
         """
-        w = self._ask_w(t, net, co)
+        w = self._ask_w(t, net, co, k, lo, hi)
         if w <= self.rule[t][0] + 1e-9:
             return self._free1(t, k, lo, hi, net, clear, co)
         c = self.clear_for(t, w) if clear is None else clear
@@ -1026,7 +1122,7 @@ class Tracks:
         if w is not None:
             _c = self.clear_for(t, w) if clear is None else clear
             return self._blockers1(t, k, lo, hi, net, _c, co, w)
-        w = self._ask_w(t, net, co)
+        w = self._ask_w(t, net, co, k, lo, hi)
         if w <= self.rule[t][0] + 1e-9:
             return self._blockers1(t, k, lo, hi, net, clear, co)
         c = self.clear_for(t, w) if clear is None else clear
@@ -1259,6 +1355,8 @@ class Tracks:
         # along-extent rides with the claim. Absent, the claim IS the metal,
         # which is the conservative reading and what every caller that does
         # not supply one has always meant.
+        if net is not None:
+            self._own.add((t, net))        # see `_merged_w` -- a superset guard
         self.occ.setdefault((t, k), []).append(
             (lo, hi, net, kind, co,
              self.rule[t][1] if sp is None else sp,

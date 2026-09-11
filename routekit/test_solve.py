@@ -317,3 +317,113 @@ def test_a_claim_TOO_SHORT_TO_RUN_PARALLEL_is_not_wide():
     assert g.free(36, k0 + 3, 18.0, 24.0, "thin"), (
         "a 0.380 um claim was charged the wide rule; nothing can run "
         "parallel to it for the %.3f um the rule needs" % solve.ca.WIDE_RULE[1])
+
+
+class LadderCA(WideCA):
+    """WideCA plus the step BELOW its rule -- the 65 nm deck's `Mx.S.2`.
+
+    Read off `CLN65S_9M_6X1Z1U_cell.24a` 2026-09-11, taking the SECOND
+    definition of each variable because that is the one SVRF keeps, and
+    identical for M5, M6 and M7:
+
+        Mx.S.2     width > 0.200   prl > 0.380   ->  0.120
+        Mx.S.2.1   width > 0.400   prl > 0.400   ->  0.160
+    """
+
+    WIDE_STEPS = ((0.200, 0.380, 0.120), (0.400, 0.400, 0.160))
+
+
+def _ladder_grid():
+    """`_wide_grid`, bound to an adapter that offers the whole ladder."""
+    solve.bind(LadderCA(), StubBD(), route_tiers=(35, 36, 37, 38))
+    g = solve.Tracks({"tile": (400.0, 400.0), "rects": {}},
+                     span=(0.0, 0.0, 400.0, 400.0), pg={},
+                     widths={"wide": 0.992})
+    for t in (35, 36, 37, 38):
+        w, s, p, c0, h, n = g.rule[t]
+        g.rule[t] = (0.140, 0.100, 0.240, c0, h, n)
+    g._band = {}
+    return g
+
+
+def test_clear_for_walks_the_LADDER_and_falls_back_where_there_is_none():
+    """Every step of the deck's wide-metal rule, widest applicable wins -- and
+    an adapter that offers no ladder answers exactly as it always did.
+
+    ⛔ `WIDE_RULE` alone is `Mx.S.2.1`. Reading only that step priced a 0.240
+    um line at the thin-tier minimum, which is how the 65 nm chip's only
+    geometric DRC result reached the deck.
+    """
+    g = _ladder_grid()
+    assert g.clear_for(36, 0.140) == 0.100, "a thin wire owes the tier minimum"
+    assert g.clear_for(36, 0.240) == 0.120, (
+        "0.240 um is past Mx.S.2's 0.200 threshold and owes 0.120")
+    assert g.clear_for(36, 0.992) == 0.160, "and past 0.400 it owes 0.160"
+    # ...and the seam: no ladder, no change.
+    plain = _wide_grid()
+    assert plain.clear_for(36, 0.240) == 0.100, (
+        "an adapter with no WIDE_STEPS must behave as it did before the "
+        "ladder existed -- this is what keeps other consumers unmoved")
+
+
+def test_a_net_that_STEPS_BETWEEN_LANES_is_charged_on_the_UNION():
+    """Two claims of one net that touch are ONE SHAPE to the deck, and the
+    wide rule is charged on the shape.
+
+    ⛔⛔ **THE DIE'S ONLY GEOMETRIC DRC RESULT CAME THROUGH THIS HOLE.** Same-net
+    claims never conflict -- correctly, they merge -- so nothing asked what
+    they merge INTO. On the 65 nm chip `code7_raw` came down its M6 climb onto
+    M5 lane 7.440, ran 0.48 um west and stepped up to lane 7.540 through a
+    0.100-tall M6 jumper; the two runs overlap by 0.040, so DRC saw ONE shape
+    0.240 tall running 0.670 um at 0.100 from `code8_raw`, where `M5.S.2`
+    wants 0.120. Every query along the way was legal on its own: each wire is
+    0.140 and 0.100 is the tier minimum.
+
+    Here the same shape at the stub's pitch: a net holding the next lane makes
+    the query's metal 0.380 across, which owes 0.120 and cannot stand one
+    0.240 pitch from a foreign wire -- while the identical query from a net
+    holding nothing owes 0.100 and can.
+    """
+    g = _ladder_grid()
+    k0 = 100
+    c = g.centre(36, k0)
+    g.claim(36, k0 - 1, 20.0, 30.0, "thin", co=g.centre(36, k0 - 1))
+    assert g.free(36, k0, 22.0, 28.0, "step"), (
+        "a lone 0.140 wire one pitch from a thin neighbour is legal -- if "
+        "this fails the test is measuring the wrong thing")
+    # ...now the same net already holds a lane 0.100 um off this one, which is
+    # the step the chip took: 7.440 against 7.540, overlapping by 0.040.
+    g.claim(36, k0, 20.0, 30.0, "step", co=c + 0.100)
+    assert not g.free(36, k0, 22.0, 28.0, "step"), (
+        "the net's own metal 0.100 um away merges with this query into a "
+        "0.240 um shape; it owes the foreign wire 0.120 and has 0.100")
+
+
+def test_same_net_metal_that_never_RUNS_PARALLEL_does_not_union():
+    """...and the negative control: no along-overlap is no union.
+
+    ⚠ Without this, "always charge the union" would pass the gate above and
+    charge every net for metal it merely passes near on another part of the
+    die -- two shapes that never meet are two polygons, and the deck says so.
+    """
+    g = _ladder_grid()
+    k0 = 100
+    c = g.centre(36, k0)
+    g.claim(36, k0 - 1, 20.0, 30.0, "thin", co=g.centre(36, k0 - 1))
+    g.claim(36, k0, 40.0, 50.0, "step", co=c + 0.100)
+    assert g.free(36, k0, 22.0, 28.0, "step"), (
+        "the net's own metal runs 40..50 and this query runs 22..28 -- they "
+        "share no parallel run, so they are not one shape and nothing is owed")
+
+
+def test_a_net_far_from_its_own_metal_does_not_union_either():
+    """Touching, not nearby. Two lanes further apart than the wire is wide are
+    two shapes however long they run beside each other."""
+    g = _ladder_grid()
+    k0 = 100
+    c = g.centre(36, k0)
+    g.claim(36, k0 - 1, 20.0, 30.0, "thin", co=g.centre(36, k0 - 1))
+    g.claim(36, k0, 20.0, 30.0, "step", co=c + 0.300)
+    assert g.free(36, k0, 22.0, 28.0, "step"), (
+        "0.300 um between lane centres is 0.160 um of daylight between two "
+        "0.140 um wires -- they do not touch and do not merge")
