@@ -111,7 +111,28 @@ attempts are currently `unclassified`, which means the loop's *shape* is
 counted and its *outcomes* are not. Classifying is a declaration a human or
 agent has to make; nothing can derive it.
 
-## 6. What is never the agent's call
+## 6. What a good prompt asks for
+
+The difference between a prompt that costs one run and one that costs five is
+usually not detail — it is asking for the **judgement** rather than the dump,
+and saying what to do when something fails.
+
+| instead of | ask |
+|---|---|
+| "show me the corner results" | "which corner is worst, and by how much" — you get the answer *and* the table as evidence |
+| "optimize it" | "…and tell me the residual at the chosen value" — a loop that *stopped* and a loop that *converged* look identical without it |
+| "run the flow" | "if a stage fails, stop there and show me that stage's log rather than re-running the pipeline" — this is `iterate-at-failing-tool`, and it is the most expensive habit to get wrong |
+| "is it clean?" | "what did this change ADD over the same object before the change" — a total is not a result |
+
+⭐ **Name the acceptance check in the prompt.** A request with no stated
+"done" invites a narrative; a request that says what would count as success
+gets a verdict you can act on.
+
+⚠ Your port's how-to index may carry a **worked smoke test** — the shortest
+real thing the flow does, with the prompts that drive it. Start there if you
+want to see the shape rather than read about it.
+
+## 7. What is never the agent's call
 
 | decision | whose |
 |---|---|
