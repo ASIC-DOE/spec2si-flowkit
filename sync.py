@@ -104,6 +104,28 @@ FILES = [
     # per-genre staleness contract, gates `guide`/`overview`, and leaves a
     # `log` (which that file calls "explicitly ALLOWED to be stale") advisory.
     ("docs/test_claims.py", "docs/test_claims.py"),
+    # ⭐ THE SHARED HOW-TO SPINE -- the first PROSE in this list, and it earns
+    # the slot the same way the code does: these four pages describe the half
+    # of the method that does not change when the node does (what a stage is,
+    # what a verdict means, how the core gets into a repo, how a port is stood
+    # up). Nothing in them names a tool, a deck, a PDK path or a design.
+    #
+    # They land in `docs/howto/shared/` so they can never collide with a
+    # port's OWN how-to pages, which sit in `docs/howto/` and are where every
+    # Calibre-vs-Pegasus, PyCell-vs-SKILL difference belongs. A port's index
+    # links to both. ⛔ Vendored prose must point at machine-readable things
+    # rather than restate them -- a restated signature is exact the day it is
+    # written and diverges silently after, and it would now do so in 5 repos.
+    # ⚠ AND A VENDORED PAGE MAY ONLY NAME PATHS THAT EXIST IN *EVERY* REPO
+    # IT LANDS IN. `conformance/test_policy_conformance.py` is real here and
+    # nowhere else -- it vendors to `policy/` -- so naming it in shared prose
+    # passed the claims gate in the flowkit and failed it in all four ports.
+    # The port-side spelling is the only correct one for a shared page.
+    ("docs/howto/shared/README.md", "docs/howto/shared/README.md"),
+    ("docs/howto/shared/the-method.md", "docs/howto/shared/the-method.md"),
+    ("docs/howto/shared/vendoring.md", "docs/howto/shared/vendoring.md"),
+    ("docs/howto/shared/add-a-process-node.md",
+     "docs/howto/shared/add-a-process-node.md"),
     # The routing core, phase 1: pure geometry and the tier-1 audit engine.
     # Shared under the same seam as the IR solver -- no PDK API, no deck, no
     # PCell, only numbers a caller's `rules` object hands in. The proof the
