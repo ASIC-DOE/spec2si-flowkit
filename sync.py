@@ -124,6 +124,8 @@ FILES = [
     ("docs/howto/shared/README.md", "docs/howto/shared/README.md"),
     ("docs/howto/shared/the-method.md", "docs/howto/shared/the-method.md"),
     ("docs/howto/shared/vendoring.md", "docs/howto/shared/vendoring.md"),
+    ("docs/howto/shared/run-an-agent-session.md",
+     "docs/howto/shared/run-an-agent-session.md"),
     ("docs/howto/shared/add-a-process-node.md",
      "docs/howto/shared/add-a-process-node.md"),
     # The routing core, phase 1: pure geometry and the tier-1 audit engine.

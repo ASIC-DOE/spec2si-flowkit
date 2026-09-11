@@ -34,6 +34,20 @@ where the fork-forcing divergence actually falls — Calibre vs PVS/Pegasus,
 PyCell vs SKILL PCells, one substrate node vs per-tub isolation. Designs are
 directories *inside* a port (see [ADR-0001](docs/decisions/0001-process-scoped-repos.md)).
 
+## Start here
+
+This repo is the node-agnostic core, so the procedures here are the ones
+that are true on every process node. Each port carries its own index for
+the commands that are not.
+
+| I want to | Start at |
+|---|---|
+| run a design session the way this flow is driven | [run-an-agent-session](docs/howto/shared/run-an-agent-session.md) |
+| understand the method, and the rules every port signs | [the-method](docs/howto/shared/the-method.md) |
+| vendor the core into a port, or read the drift gate | [vendoring](docs/howto/shared/vendoring.md) |
+| stand up a new process node | [add-a-process-node](docs/howto/shared/add-a-process-node.md) |
+| pick up where the last session stopped | [RESUME.md](RESUME.md) — a `log`, so re-run the gates before citing it |
+
 ## What is shared
 
 Forty-two files, vendored byte-identically into all four ports and

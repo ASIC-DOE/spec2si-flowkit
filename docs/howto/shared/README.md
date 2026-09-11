@@ -21,6 +21,7 @@ into a repo, and how a new node is stood up.
 | you want to | page |
 |---|---|
 | understand the flow's shape and the rules every port signs up to | [the-method](the-method.md) |
+| run a design session the way this flow is actually driven | [run-an-agent-session](run-an-agent-session.md) |
 | vendor the shared core, or read the drift gate | [vendoring](vendoring.md) |
 | stand up a new process port | [add-a-process-node](add-a-process-node.md) |
 
