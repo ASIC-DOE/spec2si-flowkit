@@ -116,15 +116,25 @@ python3 sync.py --to C:\dev\spec2si-xt011   # vendor / update one port
 python3 sync.py --check-all                 # gate: has any copy drifted?
 ```
 
-Each port then runs its own:
+Each port then runs its own, **from inside that port** — neither file exists
+here: the conformance test is vendored *to* a port's `policy/`, and each repo
+writes its own `docs/gen.py` (only the model and the backends come from here).
 
 ```bash
+cd C:\dev\spec2si-xt011
 python3 policy/test_policy_conformance.py
 python3 docs/gen.py check
+python3 docs/test_claims.py .
 ```
 
 **Never hand-edit a vendored copy.** Change the core here, re-vendor, and let
 each port decide whether its status for the changed rule still holds.
+
+⛔ **`--to` overwrites without asking.** It copies the whole vendor list
+unconditionally, so on a port that has drifted it discards the local file
+rather than reporting a conflict — including work in flight. Safe on a new
+node; on an existing one run `--check <repo>` first and resolve what it
+lists, or copy the single file you changed.
 
 ## Adding a process node
 

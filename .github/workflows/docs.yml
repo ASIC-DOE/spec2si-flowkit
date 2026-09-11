@@ -1,0 +1,42 @@
+name: docs
+
+# The flowkit's first CI. Until now the repo that VENDORS the documentation
+# model, the genre vocabulary and every docs gate to the four process ports
+# had no workflow of its own -- the gates it ships ran in the consumers and
+# never here, on the public, Apache-2.0 face of the project.
+#
+# ⚠ There is deliberately no `gen.py check` step: the flowkit has no
+# `docs/gen.py` and should not. Each port writes its own, holding that repo's
+# areas and doc-exclude list; what is shared is the MODEL (`docmodel.py`) and
+# the backends. So what runs here is everything that is genuinely
+# node-agnostic and needs no PDK, no EDA tool and no cluster.
+#
+# `sync.py --check-all` is NOT here either, and cannot be: `consumers.json`
+# records local paths on a workstation, so the drift gate is a developer
+# command, not a CI one.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Negative controls first, every time. A gate that has not been made to
+      # fail is not a gate, and these two carry their own self-tests.
+      - name: renderer self-tests (21 + 14)
+        run: |
+          python docs/test_mdrender.py
+          python docs/test_texrender.py
+
+      - name: runnable-claim gate (negative control first)
+        run: |
+          python docs/test_claims.py --self-test
+          python docs/test_claims.py .

@@ -104,6 +104,34 @@ def _skip(rel):
             or any(rel.startswith(b) for b in BUILD_DIRS))
 
 
+def _consumer_roots(root):
+    """Where this repo's registered consumers live, per `consumers.json`.
+
+    ⭐ The flowkit's docs legitimately describe what a PORT contains -- "each
+    port then runs its own `docs/gen.py`" is true and useful, and there is no
+    `docs/gen.py` here BY DESIGN (each port writes its own; the model is what
+    gets vendored). Resolving those against the flowkit alone reported a
+    correct README as broken in five places. `consumers.json` is a
+    machine-readable registry of exactly where the ports are, so the gate asks
+    it rather than special-casing a repo name.
+    """
+    path = os.path.join(root, "consumers.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        import json
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    out = []
+    for c in data.get("consumers", []):
+        p = c.get("path") or ""
+        if p and os.path.isdir(p):
+            out.append(p)
+    return out
+
+
 def _sibling(root, rel):
     """Resolve a CROSS-REPO path. True = found, False = repo gone, None = n/a.
 
@@ -315,6 +343,7 @@ def audit(root):
     cache = {}
     index = _index(root)
     genre_of = _genre_reader(root)
+    ports = _consumer_roots(root)
     docs = sorted(docs_under(root))
     for path in docs:
         rel_doc = os.path.relpath(path, root).replace("\\", "/")
@@ -331,6 +360,9 @@ def audit(root):
                 continue
             if os.path.exists(os.path.join(here, rel)):
                 continue
+            if any(os.path.exists(os.path.join(p, rel.replace("/", os.sep)))
+                   for p in ports):
+                continue                 # a path the registered ports have
             sib = _sibling(root, rel)
             if sib is True:              # resolved in a neighbouring repo
                 continue
@@ -375,6 +407,10 @@ def audit(root):
                 live[s] = hits[0]
                 if len(hits) > 1:
                     ambiguous.add(s)
+            elif any(os.path.exists(os.path.join(p, s.replace("/", os.sep)))
+                     for p in ports):
+                live[s] = None           # a port's script; flags not checkable
+                ambiguous.add(s)
             elif os.path.exists(os.path.join(here, s)):
                 live[s] = os.path.relpath(os.path.join(here, s),
                                           root).replace("\\", "/")

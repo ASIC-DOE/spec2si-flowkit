@@ -1,6 +1,6 @@
 <!--docmeta
 title: RESUME — the routekit workstream, session handoff
-genre: overview
+genre: log
 status: active
 area: top
 owner: soumyajit

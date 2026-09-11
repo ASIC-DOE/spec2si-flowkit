@@ -265,5 +265,5 @@ detector which has never reported is not evidence. The ones worth naming:
 - [ADR-0002](decisions/0002-routekit-vendored-core.md) — the same evidence
   standard applied to the router
 - [`em_ir_alignment.md`](em_ir_alignment.md) §6 — the seam both obey
-- `spec2si-xt011` `docs/drc_in_the_loop.md` — the narrative, with figures and
+- `spec2si-tsmc28` `docs/drc_in_the_loop.md` — the narrative, with figures and
   the 1063 → 11 trajectory
