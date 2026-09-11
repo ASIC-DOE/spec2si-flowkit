@@ -122,5 +122,5 @@ given. The run's overall verdict is `MISMATCH`, from a harness pin and from
 threshold; neither is reachable by anything the router draws, and saying which
 is the point. The same change measured on the die was 88 → 1098, unreadable.
 
-The narrative, with figures: `spec2si-xt011` `docs/drc_in_the_loop.md`.
+The 28 nm port's local half and its first use: `spec2si-tsmc28` `docs/howto/drc_in_the_loop.md`.
 The API and the seam: [`drc_loop.md`](../drc_loop.md).

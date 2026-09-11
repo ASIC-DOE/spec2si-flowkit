@@ -265,5 +265,6 @@ detector which has never reported is not evidence. The ones worth naming:
 - [ADR-0002](decisions/0002-routekit-vendored-core.md) — the same evidence
   standard applied to the router
 - [`em_ir_alignment.md`](em_ir_alignment.md) §6 — the seam both obey
-- `spec2si-tsmc28` `docs/drc_in_the_loop.md` — the narrative, with figures and
-  the 1063 → 11 trajectory
+- `spec2si-tsmc28` `docs/howto/drc_in_the_loop.md` — the 28 nm port's local
+  half (`chip/floorplan/drc_port.py`) and what it closed on first use. ⚠ The
+  1063 → 11 trajectory is in THIS file and ADR-0003, not there
