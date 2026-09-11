@@ -85,16 +85,22 @@ GATING = ("guide", "overview")
 SKIP_GENRES = ("reference",)
 
 
-def _resolves_in(cwd, rel):
+def _resolves_in(root, cwd, rel):
     """True when `rel` exists under a directory a code block `cd`-ed into.
 
-    Absolute only: a relative `cd` is resolved against a working directory
-    this tool cannot know, and guessing one would be inventing the answer.
+    An absolute `cd` is taken literally. A RELATIVE one is resolved against
+    the repo root, which is the convention every doc in this family already
+    follows -- they write `python3 analog/engine/run.py`, not a path from
+    wherever the reader happens to stand. That makes `cd ..\\spec2si-tsmc65`
+    resolve to the sibling checkout, which is what the sentence means and
+    what a reader would do.
     """
-    if not (len(cwd) > 2 and (cwd[1] == ":" or cwd.startswith("/"))):
-        return False
-    return os.path.exists(os.path.join(cwd.replace("\\", os.sep),
-                                       rel.replace("/", os.sep)))
+    cwd = cwd.replace("\\", os.sep)
+    if len(cwd) > 2 and (cwd[1] == ":" or cwd.startswith("/")):
+        base = cwd
+    else:
+        base = os.path.join(root, cwd)
+    return os.path.exists(os.path.join(base, rel.replace("/", os.sep)))
 
 
 def _skip(rel):
@@ -390,7 +396,7 @@ def audit(root):
                 for s in CMD_RE.findall(line):
                     if _skip(s):
                         continue
-                    if cwd and _resolves_in(cwd, s):
+                    if cwd and _resolves_in(root, cwd, s):
                         continue
                     cmdlines.append((s, line))
                     scripts.add(s)
