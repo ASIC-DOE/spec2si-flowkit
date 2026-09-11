@@ -1,6 +1,6 @@
 {
  "policy": "spec2si-docmeta-core",
- "version": "1.0.0",
+ "version": "1.1.0",
  "description": "The NODE-AGNOSTIC vocabulary for `docmeta` frontmatter: the genres a documentation gate will accept, and the aliases it folds into them. Consumers (AIML_ASIC 65 nm, ONR_ADFT_ASIC 28 nm, XT011_ASIC) VENDOR this file verbatim beside flow_policy.core.json. It exists because all three repos adopted the docmeta convention independently and their vocabularies DRIFTED: measured 2026-08-20, 26 tracked docs carry a genre AIML_ASIC's generator rejects (finding 9, journal 6, plan 6, measurement 2, howto 1, how-to 1, recipe 1), so a shared documentation generator could not run across the three repos at all. What is shared is the GENRE SET and the staleness contract each genre implies; what stays local is which genres a repo actually uses and how its generator renders them.",
  "contract": {
   "vendored": "policy/docmeta.core.json is a byte-identical copy; sync.py --check fails when it drifts from upstream",
@@ -9,7 +9,12 @@
   "aliases_are_accepted_not_blessed": "an alias is a spelling the gate accepts and folds into its canonical genre for grouping. It is not a separate contract. New docs should use the canonical id; the alias exists so that adopting this file breaks no existing doc.",
   "adding_a_genre": "add it here with an `ages_by` and a `contract` that no existing genre already states, bump the minor version, re-vendor. A genre whose contract duplicates another belongs in `aliases`."
  },
- "required": ["genre", "status", "updated", "summary"],
+ "required": [
+  "genre",
+  "status",
+  "updated",
+  "summary"
+ ],
  "genres": [
   {
    "id": "overview",
@@ -58,6 +63,13 @@
    "ages_by": "a dated status, session handoff or journal",
    "contract": "A disposable snapshot, explicitly ALLOWED to be stale. Nothing should ever be derived from a log; if something must stay true, it belongs in another genre.",
    "since": "1.0.0"
+  },
+  {
+   "id": "datasheet",
+   "ages_by": "a BLOCK's measured interface and performance -- pins, operating conditions, the numbers a consumer designs against",
+   "contract": "One page per built cell, and every electrical row is a MEASUREMENT with its corner stated, never a target. It ages the moment the block is re-simulated or re-laid-out: the summary must say what is schematic-level and what is extracted, because a datasheet is the document most likely to be quoted by someone who will not re-derive it.",
+   "since": "1.1.0",
+   "note": "Added 2026-09-04 when the LVBGR bandgap branch merged carrying analog/lib/aiml_analog/bandgap/DATASHEET.md. The gate refused it as an unknown genre -- correctly, since the list is the contract -- and the right resolution was to admit the genre rather than relabel a datasheet as a `reference`: they age by different things, which is what a genre is for."
   }
  ],
  "aliases": {

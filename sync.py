@@ -288,14 +288,43 @@ def vendor(dest):
     return n
 
 
+def skips(dest):
+    """Prefixes this consumer has DECLARED it does not take, with a reason.
+
+    ⭐ A GAP A PORT HAS DECIDED ON IS NOT DRIFT, and until this existed there
+    was no way to say so: `check` reported nine `drcloop/*` files MISSING in
+    spec2si-xt011 on every run, forever, because that port reads its PVS
+    results through its own `analog/layout/drc_db.py` -- imported by five
+    modules -- and adopting the shared core is a MIGRATION, not a delivery.
+    A gate that reports a permanent red nobody can clear is a gate that gets
+    ignored, and then the real finding beside it is invisible too.
+
+    So a consumer may declare `"skip": {"<prefix>": "<why>"}` in
+    consumers.json. It is the same idea as `not-implemented` being a PASSING
+    state in flow_policy.json: the gap becomes a sentence someone wrote and a
+    number on every run, instead of an absence nobody can see.
+
+    ⛔ It is NOT a suppression. A skipped prefix that turns out to be present
+    is still compared, and still reports DRIFTED if it has diverged -- a port
+    cannot half-take a file and silence the check on it.
+    """
+    for c in consumers():
+        if os.path.normcase(os.path.abspath(c["path"])) == \
+                os.path.normcase(os.path.abspath(dest)):
+            return c.get("skip") or {}
+    return {}
+
+
 def check(dest):
-    """[(rel, status)] -- 'ok' | 'DRIFTED' | 'MISSING'."""
+    """[(rel, status)] -- 'ok' | 'DRIFTED' | 'MISSING' | 'not taken'."""
     out = []
+    declared = skips(dest)
     for src_rel, dst_rel in FILES:
         src = os.path.join(HERE, src_rel)
         dst = os.path.join(dest, dst_rel)
         if not os.path.exists(dst):
-            out.append((dst_rel, "MISSING"))
+            pre = next((p for p in declared if dst_rel.startswith(p)), None)
+            out.append((dst_rel, "not taken" if pre else "MISSING"))
         elif sha256(dst) != sha256(src):
             out.append((dst_rel, "DRIFTED"))
         else:
@@ -317,16 +346,28 @@ def main(argv):
     else:
         print(__doc__)
         return 2
-    bad = 0
+    bad = declined = 0
     for dest in targets:
         print(os.path.basename(dest.rstrip("/\\")) + ":")
-        for rel, status in check(dest):
+        rows = check(dest)
+        for rel, status in rows:
             print("  {:9s} {}".format(status, rel))
-            bad += status != "ok"
+            bad += status not in ("ok", "not taken")
+            declined += status == "not taken"
+        for pre, why in sorted(skips(dest).items()):
+            if any(r.startswith(pre) and s == "not taken" for r, s in rows):
+                print("  -- not taken: {} -- {}".format(pre, why))
+    if declined:
+        print("\n{} file(s) NOT TAKEN by declaration (consumers.json `skip`) -- "
+              "a decided gap, not drift.".format(declined))
     if bad:
-        print("\n{} file(s) drifted or missing -- re-vendor with "
-              "`sync.py --to <repo>`; never hand-edit a vendored copy."
-              .format(bad))
+        print("\n{} file(s) drifted or missing.".format(bad))
+        # ASCII only: this prints to a Windows console at cp1252 and to the
+        # cluster's tcsh, and a marker glyph here raised UnicodeEncodeError
+        # and took the whole gate down with it.
+        print("!! `--to <repo>` copies the WHOLE list unconditionally and will "
+              "DISCARD a drifted file rather than report a conflict. Resolve "
+              "what `--check` lists first, or copy the one file you changed.")
     return 1 if bad else 0
 
 
