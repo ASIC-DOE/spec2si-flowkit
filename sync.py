@@ -33,7 +33,7 @@ FILES = [
     # The docmeta genre vocabulary. Shared for the same reason as the policy
     # core and found the same way: all three repos adopted the `docmeta`
     # frontmatter convention independently, and by 2026-08-20 twenty-six
-    # tracked docs carried a genre AIML_ASIC's generator rejects -- so a
+    # tracked docs carried a genre spec2si-tsmc65's generator rejects -- so a
     # documentation generator could not be shared across the three repos at
     # all, whatever else was in it. A genre is a STALENESS CONTRACT, and a
     # contract is exactly the kind of thing that must not diverge.
