@@ -55,6 +55,7 @@ CMD_RE = re.compile(r"(?:^|\s)python3?\s+"
 FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]*)")
 TICK_FLAG_RE = re.compile(r"`(--[a-z][a-z0-9-]*)")
 FENCE_RE = re.compile(r"```[a-z]*\n(.*?)```", re.S)
+CD_RE = re.compile(r"cd\s+(\S+)")
 
 #: never generated at clone time -- naming one is not a stale claim. ⚠ This
 #: list is a FALLBACK ONLY: the authority is the repo's own `.gitignore`, asked
@@ -82,6 +83,18 @@ GATING = ("guide", "overview")
 #: generated from code; a stale claim here is fixed by REGENERATING, and
 #: `reference` says so itself: "cannot go stale by construction".
 SKIP_GENRES = ("reference",)
+
+
+def _resolves_in(cwd, rel):
+    """True when `rel` exists under a directory a code block `cd`-ed into.
+
+    Absolute only: a relative `cd` is resolved against a working directory
+    this tool cannot know, and guessing one would be inventing the answer.
+    """
+    if not (len(cwd) > 2 and (cwd[1] == ":" or cwd.startswith("/"))):
+        return False
+    return os.path.exists(os.path.join(cwd.replace("\\", os.sep),
+                                       rel.replace("/", os.sep)))
 
 
 def _skip(rel):
@@ -328,11 +341,24 @@ def audit(root):
             findings.append((rel_doc, genre, "path", rel))
 
         # command lines inside runnable blocks
+        # ⭐ HONOUR THE `cd` THE BLOCK JUST DID. A runnable block routinely
+        # changes directory first, and in this family it often changes REPO:
+        # `add-a-process-node.md` says `cd C:\dev\spec2si-flowkit` and then
+        # `python3 sync.py`, which is correct -- sync.py vendors OUT of the
+        # flowkit and deliberately has no copy in any port. Reading the
+        # invocation without the cd calls that guide broken for saying the
+        # true thing.
         cmdlines, scripts = [], set()
         for body in FENCE_RE.findall(text):
+            cwd = None
             for line in body.splitlines():
+                m = CD_RE.match(line.strip())
+                if m:
+                    cwd = m.group(1).strip().rstrip("/\\")
                 for s in CMD_RE.findall(line):
                     if _skip(s):
+                        continue
+                    if cwd and _resolves_in(cwd, s):
                         continue
                     cmdlines.append((s, line))
                     scripts.add(s)
