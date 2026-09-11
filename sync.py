@@ -92,6 +92,18 @@ FILES = [
     ("docs/texbackend.py", "docs/texbackend.py"),
     ("docs/test_texrender.py", "docs/test_texrender.py"),
     ("docs/test_pdf.py", "docs/test_pdf.py"),
+    # The RUNNABLE-CLAIM gate. Shared under the same seam as docmodel: it asks
+    # only whether a path a doc names still exists and whether a flag a
+    # command line passes still appears in that script -- questions with the
+    # same answer on every node, needing no PDK, no tool and no cluster.
+    # ⭐ It exists because the checks that DID run were green over a how-to
+    # guide for three weeks while nothing could say whether its commands still
+    # ran: `gen.py check` validates what a document IS (frontmatter, genre,
+    # links between docs) and structurally never looks at a `.py` path.
+    # Severity is not its own opinion -- it reads docmeta.core.json's
+    # per-genre staleness contract, gates `guide`/`overview`, and leaves a
+    # `log` (which that file calls "explicitly ALLOWED to be stale") advisory.
+    ("docs/test_claims.py", "docs/test_claims.py"),
     # The routing core, phase 1: pure geometry and the tier-1 audit engine.
     # Shared under the same seam as the IR solver -- no PDK API, no deck, no
     # PCell, only numbers a caller's `rules` object hands in. The proof the
