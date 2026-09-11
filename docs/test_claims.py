@@ -122,13 +122,9 @@ def _sibling(root, rel):
     return False
 
 
-def _ignored(root, rels):
-    """The subset git itself calls ignored -- build products, not stale docs.
-
-    Asked in ONE batch through `check-ignore --stdin`; a per-path call costs a
-    process each and this runs over thousands of claims.
-    """
-    if not rels or not os.path.isdir(os.path.join(root, ".git")):
+def _raw_ignored(root, rels):
+    """The subset of `rels` git ignores, asked literally, in one batch."""
+    if not rels:
         return frozenset()
     try:
         import subprocess
@@ -140,6 +136,51 @@ def _ignored(root, rels):
     return frozenset(l.strip().replace("\\", "/")
                      for l in out.stdout.decode("utf-8", "replace").splitlines()
                      if l.strip())
+
+
+def _ignored(root, rels):
+    """The subset git itself calls ignored -- build products, not stale docs.
+
+    ⚠ A CLAIM IS TESTED UNDER EVERY TOP-LEVEL DIRECTORY, not just at the root,
+    because `.gitignore` is PATH-SENSITIVE and the doc writes the path the way
+    a reader standing in that subtree would. `GETTING_STARTED.md` names
+    `engine/cards/passives_card.json` *in a sentence explaining that it is
+    ignored*; the rule that ignores it lives in `analog/.gitignore`, so asking
+    from the root answers "not ignored" and the gate calls a correct sentence
+    a defect. Deliberately untracked is not stale.
+
+    Asked in ONE batch through `check-ignore --stdin`; a per-path call costs a
+    process each and this runs over thousands of claims.
+    """
+    if not rels or not os.path.isdir(os.path.join(root, ".git")):
+        return frozenset()
+    # ⛔⛔ A PREFIX THAT IS ITSELF IGNORED MATCHES EVERYTHING. `work/` is
+    # ignored wholesale in every port, so probing `work/<claim>` answered
+    # "ignored" for ANY claim at all -- xt011 went from 6 real gating findings
+    # to a green 0/0 PASS in one edit, which is precisely the green-gate-over-
+    # a-wrong-artifact failure this whole gate exists to catch. Probe only
+    # under directories git actually tracks.
+    tops = [d for d in os.listdir(root)
+            if os.path.isdir(os.path.join(root, d)) and not d.startswith(".")]
+    tops = [t for t in tops if t not in _raw_ignored(root, tops)]
+    probe, origin = [], {}
+    for rel in sorted(rels):
+        for cand in [rel] + ["{}/{}".format(t, rel) for t in tops]:
+            probe.append(cand)
+            origin[cand] = rel
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", root, "check-ignore", "--stdin"],
+                             input="\n".join(probe).encode("utf-8"),
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except (OSError, ValueError):
+        return frozenset()
+    hit = set()
+    for line in out.stdout.decode("utf-8", "replace").splitlines():
+        key = line.strip().replace("\\", "/")
+        if key in origin:
+            hit.add(origin[key])
+    return frozenset(hit)
 
 
 def docs_under(root):
@@ -382,9 +423,35 @@ def self_test():
         if any(g in GATING for _d, g, _k, _x in f_log):
             print("SELF-TEST FAIL: a log must not gate: %r" % (f_log,))
             return 1
+        # ⛔ CONTROL FOR THE IGNORE-PROBE BLINDNESS. `_ignored` tests a claim
+        # under each top-level directory because .gitignore is path-sensitive;
+        # a prefix that is itself ignored (`work/`) then matches EVERY claim
+        # and the gate silently passes. This asserts a real finding survives a
+        # tree that has one. Needs a git repo, so it is skipped without one.
+        os.remove(os.path.join(tmp, "aslog.md"))
+        with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
+            fh.write(bad)
+        try:
+            import subprocess
+            q = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if subprocess.run(["git", "-C", tmp, "init"], **q).returncode == 0:
+                os.makedirs(os.path.join(tmp, "work"))
+                with open(os.path.join(tmp, ".gitignore"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write("work/\n")
+                subprocess.run(["git", "-C", tmp, "add", "-A"], **q)
+                _, f_ig = audit(tmp)
+                if not any(k == "path" for _d, _g, k, _x in f_ig):
+                    print("SELF-TEST FAIL: an ignored top-level dir blinded "
+                          "the ignore probe -- findings vanished: %r" % (f_ig,))
+                    return 1
+        except (OSError, ValueError):
+            pass
+
         print("self-test PASS: clean corpus 0 findings; seeded bad flag, bad "
               "path and missing script all caught in a `guide`; the same text "
-              "as a `log` is reported but does not gate")
+              "as a `log` is reported but does not gate; and a wholly-ignored "
+              "`work/` does not blind the ignore probe")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
