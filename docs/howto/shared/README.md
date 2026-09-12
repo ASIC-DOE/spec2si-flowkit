@@ -24,6 +24,7 @@ into a repo, and how a new node is stood up.
 | run a design session the way this flow is actually driven | [run-an-agent-session](run-an-agent-session.md) |
 | vendor the shared core, or read the drift gate | [vendoring](vendoring.md) |
 | stand up a new process port | [add-a-process-node](add-a-process-node.md) |
+| browse this port's results, layouts, waveforms, the design record and the cluster | [browse-your-results](browse-your-results.md) |
 
 ## What is deliberately NOT here
 

@@ -10,6 +10,13 @@ summary: Where routekit stands after the 2026-08-26 sessions and the exact next 
 
 # RESUME — the routekit workstream
 
+> **2026-09-12, a different workstream:** the artifact browser (`browse/`)
+> and the cluster transport (`jobs/`, landing in each port's deployment area) are vendored
+> from here into all four ports (ADR-0004); the runlog takes the design
+> record as a roster and declared path rules. `sync.py --check-all` reports
+> the routekit drift the table below describes plus nothing from this. The
+> shared how-to is `docs/howto/shared/browse-your-results.md`.
+
 Last worked **2026-08-26**, across five repos in one push. **Start by
 reading [`docs/routekit_plan.md`](docs/routekit_plan.md)** — it is the
 plan of record with every phase's gates and measurements; this file is

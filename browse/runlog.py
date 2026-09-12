@@ -194,7 +194,32 @@ _CELL_HOMES = (
 #: one directory per cell. One name per line; blank lines and `#` ignored.
 #: Without it that repo harvests an empty roster and records nothing, which is
 #: honest and useless.
+#:
+#: ⚠️ A NAME IS NOT ENOUGH FOR CHIP-LEVEL WORK, and that is where a port's
+#: busiest sessions go. Measured 2026-09-12 on xt011: 618 turns since
+#: 2026-09-03, 603 of them matching no roster name -- the die's channel
+#: routing, its pin frames and its LVS repairs live in `analog/layout/`,
+#: `chip/floorplan/` and `tech/probes/`, flow-level files whose paths name
+#: no cell at all. The harvest had been running on every session end and
+#: recording nothing, which read as a dead hook. So the file also takes:
+#:
+#:     <cell> = <glob>, <glob>, ...      a PATH RULE: any touched path that
+#:                                       matches (repo-relative, forward
+#:                                       slashes, fnmatch) is an attempt at
+#:                                       <cell>; the name joins the roster
+#:     @former-root <path>               a directory this repo USED TO BE
+#:                                       checked out at (ADR-0001 renamed all
+#:                                       five on 2026-08-24), so a transcript
+#:                                       from before the rename still
+#:                                       relativises against it
+#:
+#: Rules are tried after the component/stem match, in file order, first
+#: match wins. The design record (`design/<lib>/<cell>/cell.json`) is a
+#: roster too, and a view's tracked ORIGIN file attributes to its cell
+#: without anyone declaring it -- see `rules_for`.
 _DECLARED_CELLS = ("analog", "specs", "runlog_cells.txt")
+#: The design record: one directory per library, one per cell under it.
+_DESIGN_DIR = "design"
 
 #: Names that are directories in a cell home but are not cells.
 #:
@@ -320,19 +345,147 @@ def cell_homes(root=None):
     return out
 
 
-def declared_cells(root=None):
-    """Cell names a repo states outright, for repos with no cell library."""
+def _declared_lines(root=None):
+    """The meaningful lines of runlog_cells.txt, comments stripped."""
     p = os.path.join(root or ROOT, *_DECLARED_CELLS)
-    out = set()
+    out = []
     try:
         with open(p, encoding="utf-8") as fh:
             for ln in fh:
                 s = ln.split("#", 1)[0].strip()
                 if s:
-                    out.add(s)
+                    out.append(s)
     except OSError:
         pass
     return out
+
+
+def declared_cells(root=None):
+    """Cell names a repo states outright, for repos with no cell library.
+
+    A path-rule line (`cell = glob, ...`) contributes its CELL; a
+    `@former-root` line contributes nothing here."""
+    out = set()
+    for s in _declared_lines(root):
+        if s.startswith("@"):
+            continue
+        name = s.split("=", 1)[0].strip()
+        if name:
+            out.add(name)
+    return out
+
+
+def declared_rules(root=None):
+    """([(cell, [glob, ...])], [former_root, ...]) from runlog_cells.txt."""
+    rules, former = [], []
+    for s in _declared_lines(root):
+        if s.startswith("@former-root"):
+            v = s[len("@former-root"):].strip()
+            if v:
+                former.append(v)
+        elif "=" in s:
+            name, _, globs = s.partition("=")
+            globs = [g.strip().replace("\\", "/") for g in globs.split(",")]
+            globs = [g for g in globs if g]
+            if name.strip() and globs:
+                rules.append((name.strip(), globs))
+    return rules, former
+
+
+def record_cells(root=None):
+    """{cell: library} from the design record. Since 2026-09-12 every port
+    has one, and it names exactly the cells the flow has published, in the
+    spelling their files carry -- a roster nobody has to maintain."""
+    base = os.path.join(root or ROOT, _DESIGN_DIR)
+    out = {}
+    try:
+        libs = sorted(os.listdir(base))
+    except OSError:
+        return out
+    for lib in libs:
+        ld = os.path.join(base, lib)
+        if not os.path.isdir(ld) or lib.startswith("."):
+            continue
+        try:
+            cells_ = sorted(os.listdir(ld))
+        except OSError:
+            continue
+        for c in cells_:
+            if os.path.isfile(os.path.join(ld, c, "cell.json")):
+                out[c] = lib
+    return out
+
+
+def record_origins(root=None):
+    """{repo-relative origin path: cell} for every view file the record
+    captured from a TRACKED file. A turn that edits the file a view was
+    captured from is an attempt at that cell, by the record's own word."""
+    base = os.path.join(root or ROOT, _DESIGN_DIR)
+    out = {}
+    for c, lib in record_cells(root).items():
+        p = os.path.join(base, lib, c, "cell.json")
+        try:
+            with open(p, encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        views = d.get("views") if isinstance(d, dict) else None
+        if not isinstance(views, dict):
+            continue
+        for v in views.values():
+            files = v.get("files") if isinstance(v, dict) else None
+            for f in files or []:
+                o = f.get("origin") if isinstance(f, dict) else None
+                if (isinstance(o, str) and o and not o.startswith("/")
+                        and not (len(o) > 1 and o[1] == ":")):
+                    out.setdefault(o.replace("\\", "/"), c)
+    return out
+
+
+class Rules(object):
+    """What attributes a touched PATH to a cell, beyond its components: the
+    record's origins (exact) and the declared globs (in order), each tried
+    against the path relativised to this repo's root or a former one."""
+
+    def __init__(self, root, former, origins, globs):
+        self.root = root
+        self.roots = [root] + list(former)
+        self.origins = origins
+        self.globs = globs
+
+    def relativise(self, p):
+        q = (p or "").replace("\\", "/")
+        low = q.lower()
+        for r in self.roots:
+            rr = r.replace("\\", "/").rstrip("/").lower() + "/"
+            if low.startswith(rr):
+                return q[len(rr):]
+        return q
+
+    def cell_for(self, paths):
+        import fnmatch
+        rel = [self.relativise(p) for p in paths]
+        for q in rel:
+            if q in self.origins:
+                return self.origins[q]
+        for cell, globs in self.globs:
+            for q in rel:
+                for g in globs:
+                    if fnmatch.fnmatchcase(q, g):
+                        return cell
+        return None
+
+
+_RULES_CACHE = {}
+
+
+def rules_for(root=None):
+    """The `Rules` for a repo, cached per root for the life of a harvest."""
+    root = root or ROOT
+    if root not in _RULES_CACHE:
+        globs, former = declared_rules(root)
+        _RULES_CACHE[root] = Rules(root, former, record_origins(root), globs)
+    return _RULES_CACHE[root]
 
 
 #: flow_designs() walks three directories, and it is called once per
@@ -422,10 +575,11 @@ def cells(root=None):
                 out.add(n)
     out |= set(flow_designs(root))
     out |= declared_cells(root)
+    out |= set(record_cells(root))
     return out
 
 
-def cell_of(paths, roster):
+def cell_of(paths, roster, rules=None):
     """The cell an attempt was about, or None.
 
     Any path COMPONENT that names a cell wins, which is what actually works
@@ -433,7 +587,11 @@ def cell_of(paths, roster):
     `work/vref_lvs/...`, `control_layout/lib/aiml_control/clk_eoc/...`, and
     `.../strongarm.py`. A directory match beats a filename stem, and a turn
     that touched two cells is recorded against the first -- a known
-    approximation, and the reason `files` is kept beside it."""
+    approximation, and the reason `files` is kept beside it.
+
+    Then the `rules` (rules_for): a view's tracked origin file, and the
+    port's declared path globs -- the only way chip-level work, whose paths
+    name no cell, gets counted at all."""
     stems = []
     for p in paths:
         parts = [q for q in re.split(r"[\\/]", p or "") if q]
@@ -445,6 +603,8 @@ def cell_of(paths, roster):
     for s in stems:
         if s in roster:
             return s
+    if rules is not None:
+        return rules.cell_for(paths)
     return None
 
 
@@ -585,9 +745,10 @@ def harvest_session(path, session_id, roster, seen, budget=None,
     out = []
     matched = 0
     turns = agentview.turns(events, limit=10 ** 6)
+    rules = rules_for()
     for t in turns:
         paths = [p for p in t["files"] if p]
-        cell = cell_of(paths, roster)
+        cell = cell_of(paths, roster, rules)
         if cell is None:
             continue                     # not an attempt at a known cell
         aid = _aid(session_id, t["started"], cell)
@@ -719,7 +880,8 @@ def retier(cwd=None, limit=DEFAULT_LIMIT, budget=None, home=None):
             if not events:
                 continue
             for t in agentview.turns(events, limit=10 ** 6):
-                cell = cell_of([p for p in t["files"] if p], roster)
+                cell = cell_of([p for p in t["files"] if p], roster,
+                               rules_for())
                 if cell is None:
                     continue
                 rec = cur.get(_aid(s["id"], t["started"], cell))

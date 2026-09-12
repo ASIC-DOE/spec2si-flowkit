@@ -1,0 +1,329 @@
+#!/bin/sh
+# runjob -- mint a job identity and launch a self-reporting detached job.
+#
+# The ONE wrapper that replaces every hand-rolled detached launcher
+# (launch_recenter.sh, launch_final.sh, run_enob{1,r,_bg}.sh). It fixes
+# Class A of docs/job_status_plan.md: an anonymous OS process with a
+# per-script sentinel file becomes a job with an id, a unique stdout, and
+# a status it PUBLISHES itself.
+#
+# What it does (plan L1):
+#   * mints  <flow>-<target>-<UTCstamp>-<rand4>
+#   * creates $JOBS/<jobid>/ and writes meta.json at launch
+#   * setsid-nohups the real command with stdout to <jobid>/stdout.log --
+#     UNIQUE per job by construction, which structurally eliminates the
+#     log-collision bug (a stale run co-writing enob.log)
+#   * runs a sidecar in the SAME detached session that every N s atomically
+#     publishes status.json (write-temp + mv -f, atomic on NFS)
+#   * on exit writes result.json (rc, verdict, elapsed, artifacts) and
+#     appends one line to $JOBS/events.jsonl
+#   * TRAPS signals, so a killed job publishes state=killed, never silence
+#
+# Pure POSIX /bin/sh: the sidecar wraps the tool env, so it cannot assume
+# Calibre's python; system python is 3.6.8. No python, no jq, no bashisms.
+#
+# NDA (plan §5): status/meta/result carry ids, states, counts, epochs, and
+# expected-artifact PATHS RELATIVE TO CWD only -- never log lines (which
+# may contain model paths). stdout.log stays on the cluster; only the
+# structured envelopes are ever read across to the laptop. (Rich, sanitized
+# progress + last-lines is Phase 2/3, behind the shared extractor.)
+#
+# Usage:
+#   runjob --flow F --target T [--interval N] [--tool T] [--expect PATH]... \
+#          ( -- CMD... | --cmd64 B64TOKEN... )
+#   --cmd64 tokens are base64 argv elements (how the laptop passes an
+#   arbitrary command without any quoting crossing the wire); -- takes the
+#   command literally (how a human or a launcher script calls it).
+#
+# On success prints ONE envelope line: {"schema":1,"kind":"launched",...}.
+set -u
+
+SCHEMA=1
+JOBS="${ASICJOBS_DIR:-$HOME/.asicjobs}"
+SELF="$0"
+
+# --- json value escaping (closed vocabulary; see report.sh) ---------------
+jstr() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# JSON array from the remaining positional params ("$@") -> ["a","b",...]
+jarr() {
+	printf '['
+	_first=1
+	for _a in "$@"; do
+		[ "$_first" = 1 ] || printf ','
+		printf '"%s"' "$(jstr "$_a")"
+		_first=0
+	done
+	printf ']'
+}
+
+now() { date +%s 2>/dev/null || echo 0; }
+
+# ==========================================================================
+# SUPERVISOR (re-entry): runjob re-execs itself detached as the sidecar.
+#   runjob __supervise <dir> <interval> <started> CMD...
+# It owns the child, publishes status.json each interval, and finalizes.
+# ==========================================================================
+if [ "${1:-}" = "__supervise" ]; then
+	shift
+	DIR="$1"; INTERVAL="$2"; START="$3"; shift 3
+	JOBID=$(basename "$DIR")
+	HOST=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+	LOG="$DIR/stdout.log"
+	PROG_PY="$(dirname "$SELF")/progress.py"
+	# expected artifacts were recorded in meta.json; read them back as a
+	# newline list (we control the format: one "path" per array element).
+	EXPECTS=$(sed -n 's/.*"expect":\[\(.*\)\].*/\1/p' "$DIR/meta.json" 2>/dev/null)
+	# live-progress config (Phase 2), also from meta.json.
+	PTOOL=$(sed -n 's/.*"ptool":"\([^"]*\)".*/\1/p' "$DIR/meta.json" 2>/dev/null)
+	PTOTAL=$(sed -n 's/.*"ptotal":\([0-9]*\).*/\1/p' "$DIR/meta.json" 2>/dev/null)
+	PLOG=$(sed -n 's/.*"plog":"\([^"]*\)".*/\1/p' "$DIR/meta.json" 2>/dev/null)
+
+	# progress object for status.json, or the literal null. Computed by the
+	# SHARED extractor (progress.py) run under the cluster's system python3
+	# -- BEST EFFORT: no python, no extractor, or no signal all yield null,
+	# and the core sidecar never depends on any of it.
+	compute_progress() {
+		# 1. prefer semantic progress the running app published (jobrec
+		# ATTACH mode) -- it knows "stage 3/7", the log only knows bytes.
+		if [ -f "$DIR/progress.json" ]; then
+			_pj=$(cat "$DIR/progress.json" 2>/dev/null)
+			case "$_pj" in \{*) printf '%s' "$_pj"; return ;; esac
+		fi
+		# 2. else parse the tool log with the shared extractor.
+		[ -n "$PTOOL" ] || { printf null; return; }
+		command -v python3 >/dev/null 2>&1 || { printf null; return; }
+		[ -f "$PROG_PY" ] || { printf null; return; }
+		_pf="$PLOG"; [ -n "$_pf" ] || _pf="$LOG"
+		_args="$PTOOL $_pf --elapsed $1"
+		[ "${PTOTAL:-0}" -gt 0 ] 2>/dev/null && _args="$_args --total $PTOTAL"
+		_o=$(python3 "$PROG_PY" $_args 2>/dev/null)
+		case "$_o" in
+			\{*) printf '%s' "$_o" ;;
+			*)   printf null ;;
+		esac
+	}
+
+	# publish status.json atomically. $1 = state, $2 = pid (0 if none yet).
+	publish() {
+		_st="$1"; _pid="$2"
+		_hb=$(now); _el=$((_hb - START))
+		_lb=$(wc -c <"$LOG" 2>/dev/null | tr -d ' '); [ -n "$_lb" ] || _lb=0
+		# child process state (R/S/D/Z...) for the hung-vs-slow heuristic:
+		# 'D' is an uninterruptible NFS/IO wait, NOT a hang.
+		_pstat="?"
+		if [ "$_pid" -gt 0 ] 2>/dev/null; then
+			_pstat=$(ps -o stat= -p "$_pid" 2>/dev/null | tr -d ' \n')
+			[ -n "$_pstat" ] || _pstat="?"
+		fi
+		_prog=$(compute_progress "$_el")
+		# fold in an app-published license snapshot (Phase 4), if any -- a
+		# job stalled on 0 free seats then reads as WAITING_LICENSE, not hung.
+		_lic=null
+		if [ -f "$DIR/license.json" ]; then
+			_lj=$(cat "$DIR/license.json" 2>/dev/null)
+			case "$_lj" in \{*) _lic="$_lj" ;; esac
+		fi
+		_tmp="$DIR/status.json.tmp.$$"
+		printf '{"schema":%s,"kind":"status","jobid":"%s","state":"%s","pid":%s,"host":"%s","started":%s,"heartbeat":%s,"elapsed_s":%s,"log_bytes":%s,"pstat":"%s","progress":%s,"license":%s}\n' \
+			"$SCHEMA" "$(jstr "$JOBID")" "$_st" "$_pid" "$(jstr "$HOST")" \
+			"$START" "$_hb" "$_el" "$_lb" "$(jstr "$_pstat")" "$_prog" "$_lic" \
+			>"$_tmp" 2>/dev/null
+		mv -f "$_tmp" "$DIR/status.json" 2>/dev/null
+	}
+
+	# JSON array of {path,exists,bytes,mtime,sha256,jobid} for each expected
+	# artifact, and (side effect) a sha256sum-checkable manifest at
+	# $DIR/artifacts.sha256 with ABSOLUTE paths -- this is the Class-D fix:
+	# an artifact carries the id of the job that produced it, so a later
+	# reader can prove it is CURRENT (jobs verify) instead of trusting a
+	# stale file. sha is skipped for directories and very large files (the
+	# stamp is best-effort; mtime+jobid still identify them).
+	artifacts_json() {
+		: >"$DIR/artifacts.sha256"
+		printf '['
+		_f=1
+		# EXPECTS is a comma-joined list of already-quoted strings; strip
+		# quotes token by token. No spaces in artifact paths by convention.
+		_list=$(printf '%s' "$EXPECTS" | tr ',' ' ' | tr -d '"')
+		for _p in $_list; do
+			[ -n "$_p" ] || continue
+			[ "$_f" = 1 ] || printf ','
+			if [ -e "$_p" ]; then
+				_b=$(wc -c <"$_p" 2>/dev/null | tr -d ' '); [ -n "$_b" ] || _b=0
+				_m=$(stat -c %Y "$_p" 2>/dev/null || echo 0)
+				_sha=""
+				if [ -f "$_p" ] && [ "$_b" -lt 104857600 ] 2>/dev/null; then
+					_sha=$(sha256sum "$_p" 2>/dev/null | cut -c1-64)
+					if [ -n "$_sha" ]; then
+						case "$_p" in /*) _ap="$_p" ;; *) _ap="$PWD/$_p" ;; esac
+						printf '%s  %s\n' "$_sha" "$_ap" \
+							>>"$DIR/artifacts.sha256"
+					fi
+				fi
+				printf '{"path":"%s","exists":true,"bytes":%s,"mtime":%s,"sha256":"%s","jobid":"%s"}' \
+					"$(jstr "$_p")" "$_b" "$_m" "$_sha" "$(jstr "$JOBID")"
+			else
+				printf '{"path":"%s","exists":false,"jobid":"%s"}' \
+					"$(jstr "$_p")" "$(jstr "$JOBID")"
+			fi
+			_f=0
+		done
+		printf ']'
+	}
+
+	finalize() {
+		_st="$1"; _rc="$2"
+		_fin=$(now); _el=$((_fin - START))
+		# 1. result.json (authoritative verdict)
+		_tmp="$DIR/result.json.tmp.$$"
+		printf '{"schema":%s,"kind":"result","jobid":"%s","state":"%s","rc":%s,"host":"%s","started":%s,"finished":%s,"elapsed_s":%s,"artifacts":%s}\n' \
+			"$SCHEMA" "$(jstr "$JOBID")" "$_st" "$_rc" "$(jstr "$HOST")" \
+			"$START" "$_fin" "$_el" "$(artifacts_json)" >"$_tmp" 2>/dev/null
+		mv -f "$_tmp" "$DIR/result.json" 2>/dev/null
+		# 2. one terminal line to the shared event bus (append is atomic on
+		# NFS for a sub-PIPE_BUF write). Phase 3 consumes this for notify.
+		printf '{"schema":%s,"jobid":"%s","event":"end","state":"%s","rc":%s,"epoch":%s}\n' \
+			"$SCHEMA" "$(jstr "$JOBID")" "$_st" "$_rc" "$_fin" \
+			>>"$JOBS/events.jsonl" 2>/dev/null
+		# 3. publish the terminal status LAST -- it is the commit point an
+		# observer keys on, so result.json and the event are already durable
+		# by the time anyone sees state != running.
+		publish "$_st" "${CHILD:-0}"
+	}
+
+	# a signal to the sidecar means the job was killed: kill the child too,
+	# publish state=killed, and exit -- the exact opposite of going silent
+	# (the failure mode that made a killed job look "gone").
+	on_signal() {
+		kill "$CHILD" 2>/dev/null
+		wait "$CHILD" 2>/dev/null
+		finalize killed 137
+		exit 0
+	}
+	trap on_signal TERM INT HUP
+
+	# hand our identity to the child so a Python engine (jobrec) can ATTACH
+	# and publish semantic progress into this same job dir, instead of
+	# running blind. ASICJOBS_DIR stays the jobs-ROOT override (report.sh /
+	# runjob read it); the per-job dir is its own var.
+	export ASICJOBS_JOBDIR="$DIR"
+	export ASICJOBS_ID="$JOBID"
+	# launch the real command with its OWN unique stdout.log.
+	( exec "$@" ) >"$LOG" 2>&1 &
+	CHILD=$!
+	publish running "$CHILD"
+
+	# heartbeat loop. A signal interrupts the sleep -> on_signal runs.
+	while kill -0 "$CHILD" 2>/dev/null; do
+		sleep "$INTERVAL"
+		kill -0 "$CHILD" 2>/dev/null || break
+		publish running "$CHILD"
+	done
+	wait "$CHILD"; rc=$?
+
+	# classify the exit. >128 means killed by signal rc-128 (covers a
+	# direct kill of the child, e.g. killing its spectre).
+	if [ "$rc" -eq 0 ]; then
+		finalize done 0
+	elif [ "$rc" -gt 128 ]; then
+		finalize killed "$rc"
+	else
+		finalize failed "$rc"
+	fi
+	exit 0
+fi
+
+# ==========================================================================
+# FOREGROUND: parse args, mint the id, write meta.json, detach the sidecar.
+# ==========================================================================
+flow=job
+target=run
+interval=5
+tool=""
+ptool=""         # progress extractor name (spectre|innovus|calibre|cocotb)
+ptotal=0         # expected total for frac/ETA (0 = unknown)
+plog=""          # log file to parse for progress (default: stdout.log)
+mode=""          # "lit" (-- CMD) or "b64" (--cmd64 TOKENS)
+EXPECTS=""       # comma-joined quoted paths for meta.json
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--flow)         flow="$2"; shift 2 ;;
+		--target)       target="$2"; shift 2 ;;
+		--interval)     interval="$2"; shift 2 ;;
+		--tool)         tool="$2"; shift 2 ;;
+		--progress)     ptool="$2"; shift 2 ;;
+		--total)        ptotal="$2"; shift 2 ;;
+		--progress-log) plog="$2"; shift 2 ;;
+		--expect)
+			_q="\"$(jstr "$2")\""
+			EXPECTS="${EXPECTS:+$EXPECTS,}$_q"
+			shift 2 ;;
+		--cmd64)    mode=b64; shift; break ;;
+		--)         mode=lit; shift; break ;;
+		*) echo "runjob: unknown arg: $1" >&2; exit 2 ;;
+	esac
+done
+
+# ptotal must be a non-negative integer; anything else -> 0 (unknown).
+case "$ptotal" in *[!0-9]*|'') ptotal=0 ;; esac
+
+[ -n "$mode" ] || { echo "runjob: missing command (need -- CMD or --cmd64)" >&2; exit 2; }
+[ $# -gt 0 ] || { echo "runjob: empty command" >&2; exit 2; }
+
+# decode base64 argv (the laptop path): rotate each positional through
+# base64 -d so an arbitrary command survives with ZERO quoting on the wire.
+if [ "$mode" = b64 ]; then
+	_n=$#
+	_i=0
+	while [ "$_i" -lt "$_n" ]; do
+		_tok="$1"; shift
+		_dec=$(printf '%s' "$_tok" | base64 -d 2>/dev/null) \
+			|| { echo "runjob: bad base64 arg" >&2; exit 2; }
+		set -- "$@" "$_dec"
+		_i=$((_i + 1))
+	done
+fi
+
+# sanitize the id components to the reader's closed charset.
+san() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-40; }
+flow=$(san "$flow"); target=$(san "$target")
+stamp=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo 00000000T000000Z)
+# rand4: 4 hex from urandom, falling back to the pid.
+rand=$(od -An -N2 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+[ -n "$rand" ] || rand=$(printf '%04x' $(( $$ % 65536 )))
+jobid="$flow-$target-$stamp-$rand"
+
+DIR="$JOBS/$jobid"
+mkdir -p "$DIR" || { echo "runjob: cannot create $DIR" >&2; exit 1; }
+: >"$DIR/stdout.log"
+
+host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+cwd=$(pwd)
+started=$(now)
+
+# meta.json at launch, so `jobs ls` sees the job before the first heartbeat.
+_tmp="$DIR/meta.json.tmp.$$"
+printf '{"schema":%s,"kind":"meta","jobid":"%s","flow":"%s","target":"%s","host":"%s","cwd":"%s","tool":"%s","started":%s,"interval":%s,"ptool":"%s","ptotal":%s,"plog":"%s","cmd":%s,"expect":[%s]}\n' \
+	"$SCHEMA" "$(jstr "$jobid")" "$(jstr "$flow")" "$(jstr "$target")" \
+	"$(jstr "$host")" "$(jstr "$cwd")" "$(jstr "$tool")" "$started" \
+	"$interval" "$(jstr "$ptool")" "$ptotal" "$(jstr "$plog")" \
+	"$(jarr "$@")" "$EXPECTS" >"$_tmp"
+mv -f "$_tmp" "$DIR/meta.json"
+
+# detach the sidecar. setsid+nohup so it survives the launching ssh session
+# (a tmux/child from a NON-interactive ssh gets reaped by systemd session
+# cleanup -- the measured house lesson). nohup-only fallback for hosts
+# without setsid (never the cluster; keeps local testing portable).
+if command -v setsid >/dev/null 2>&1; then
+	setsid nohup sh "$SELF" __supervise "$DIR" "$interval" "$started" "$@" \
+		>/dev/null 2>&1 </dev/null &
+else
+	nohup sh "$SELF" __supervise "$DIR" "$interval" "$started" "$@" \
+		>/dev/null 2>&1 </dev/null &
+fi
+
+# emit the launch envelope (the laptop's `jobs run` parses this).
+printf '{"schema":%s,"kind":"launched","jobid":"%s","host":"%s","dir":"%s"}\n' \
+	"$SCHEMA" "$(jstr "$jobid")" "$(jstr "$host")" "$(jstr "$JOBS/$jobid")"

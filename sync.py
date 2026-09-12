@@ -128,6 +128,8 @@ FILES = [
      "docs/howto/shared/run-an-agent-session.md"),
     ("docs/howto/shared/add-a-process-node.md",
      "docs/howto/shared/add-a-process-node.md"),
+    ("docs/howto/shared/browse-your-results.md",
+     "docs/howto/shared/browse-your-results.md"),
     # The routing core, phase 1: pure geometry and the tier-1 audit engine.
     # Shared under the same seam as the IR solver -- no PDK API, no deck, no
     # PCell, only numbers a caller's `rules` object hands in. The proof the
@@ -208,10 +210,54 @@ FILES = [
     #
     # Both are stdlib-only, which is this kit's bar: agentview imports
     # json/os/time, runlog adds hashlib/re/sys and agentview.
-    ("runlog/agentview.py", "browse/agentview.py"),
-    ("runlog/runlog.py", "browse/runlog.py"),
-    ("runlog/test_agentview.py", "browse/test_agentview.py"),
-    ("runlog/test_runlog.py", "browse/test_runlog.py"),
+    ("browse/agentview.py", "browse/agentview.py"),
+    ("browse/runlog.py", "browse/runlog.py"),
+    ("browse/test_agentview.py", "browse/test_agentview.py"),
+    ("browse/test_runlog.py", "browse/test_runlog.py"),
+    # THE ARTIFACT BROWSER, and the cluster transport it reads through.
+    # Vendored 2026-09-12 (ADR-0004). Until then one port held the
+    # implementation and the other three carried a launcher stub that
+    # reached ACROSS THE DISK into it -- and the transport was reached the
+    # same way, two hops out. The browser is stdlib-only by construction
+    # (that is its own principle 2), knows no PDK, and everything
+    # engine-specific it draws -- the transient reader, the abstract's
+    # track map -- it LOCATES in the served repo and degrades without.
+    # What differs per port is a JSON file it never copies: `roots.json`,
+    # which is how a port is now onboarded (add the file, re-vendor).
+    ("browse/model.py", "browse/model.py"),
+    ("browse/roots.py", "browse/roots.py"),
+    ("browse/tools.py", "browse/tools.py"),
+    ("browse/cluster.py", "browse/cluster.py"),
+    ("browse/estimate.py", "browse/estimate.py"),
+    ("browse/launch.py", "browse/launch.py"),
+    ("browse/server.py", "browse/server.py"),
+    ("browse/test_browse.py", "browse/test_browse.py"),
+    # The transport: an ssh round trip that cannot be corrupted by quoting
+    # (a script over stdin, values bound through quoted heredocs), the host
+    # chooser, the licence-holding process scanner and the job CLI, with
+    # the bundle the cluster side runs. A site fact, not a node one: all
+    # four ports share the one cluster. Its README stays with the port that
+    # wrote it, because it names that port's plan documents.
+    ("jobs/__init__.py", "deployment/bnl/jobs/__init__.py"),
+    ("jobs/__main__.py", "deployment/bnl/jobs/__main__.py"),
+    ("jobs/cli.py", "deployment/bnl/jobs/cli.py"),
+    ("jobs/hosts.py", "deployment/bnl/jobs/hosts.py"),
+    ("jobs/procscan.py", "deployment/bnl/jobs/procscan.py"),
+    ("jobs/remote.py", "deployment/bnl/jobs/remote.py"),
+    ("jobs/bin/jobrec.py", "deployment/bnl/jobs/bin/jobrec.py"),
+    ("jobs/bin/license.py", "deployment/bnl/jobs/bin/license.py"),
+    ("jobs/bin/progress.py", "deployment/bnl/jobs/bin/progress.py"),
+    ("jobs/bin/report.sh", "deployment/bnl/jobs/bin/report.sh"),
+    ("jobs/bin/runjob", "deployment/bnl/jobs/bin/runjob"),
+    ("jobs/test_cli.py", "deployment/bnl/jobs/test_cli.py"),
+    ("jobs/test_hosts.py", "deployment/bnl/jobs/test_hosts.py"),
+    ("jobs/test_jobrec.py", "deployment/bnl/jobs/test_jobrec.py"),
+    ("jobs/test_license.py", "deployment/bnl/jobs/test_license.py"),
+    ("jobs/test_procscan.py", "deployment/bnl/jobs/test_procscan.py"),
+    ("jobs/test_progress.py", "deployment/bnl/jobs/test_progress.py"),
+    ("jobs/test_remote.py", "deployment/bnl/jobs/test_remote.py"),
+    ("jobs/test_harness_can_fail.py",
+     "deployment/bnl/jobs/test_harness_can_fail.py"),
     ("housekeeping/run_features.py", "housekeeping/run_features.py"),
     ("housekeeping/stale_classify.py", "housekeeping/stale_classify.py"),
     ("housekeeping/attic_sweep.sh", "housekeeping/attic_sweep.sh"),

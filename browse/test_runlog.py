@@ -406,6 +406,66 @@ def test_the_parent_is_split_with_WINDOWS_semantics():
     assert got[1] == r"C:\dev", got
 
 
+def test_the_design_record_is_a_roster_and_its_origins_attribute():
+    """Every port carries design/<lib>/<cell>/cell.json since 2026-09-12: the
+    cells it names are the roster nobody maintains, and a view captured from
+    a TRACKED file attributes that file's edits to the cell."""
+    d = _fake_repo(cells=())
+    os.makedirs(os.path.join(d, "design", "lib", "ring"))
+    with open(os.path.join(d, "design", "lib", "ring", "cell.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"library": "lib", "cell": "ring", "views": {
+            "power": {"type": "route", "files": [
+                {"path": "lib/ring/power/ring_power.route",
+                 "origin": "chip/floorplan/ring_power.route"}]},
+            "layout": {"type": "layout", "files": [
+                {"path": "lib/ring/layout/layout.oa",
+                 "origin": "/u/home/x/analog/oa/lib/ring/layout/layout.oa"}]}}},
+            fh)
+    assert runlog.cells(d) == {"ring"}, runlog.cells(d)
+    rules = runlog.rules_for(d)
+    # the tracked origin, in any spelling of the root; not the cluster one
+    assert rules.cell_for([d + "\\chip\\floorplan\\ring_power.route"]) == "ring"
+    assert rules.cell_for(["/u/home/x/analog/oa/lib/ring/layout/layout.oa"]) is None
+    assert runlog.cell_of([d + "/chip/floorplan/ring_power.route"],
+                          runlog.cells(d), rules) == "ring"
+    assert runlog.cell_of([d + "/chip/floorplan/other.py"],
+                          runlog.cells(d), rules) is None
+
+
+def test_a_declared_path_rule_counts_chip_level_work():
+    """xt011's die work lives in analog/layout and chip/floorplan under
+    names like check_top_channel.py -- no roster name in any path, so 603 of
+    618 turns went unrecorded while the hook fired on every session end. A
+    rule maps the globs to the cell, and a former checkout root (ADR-0001's
+    rename) still relativises."""
+    d = _fake_repo(cells=(), declared=(
+        "# rules\n"
+        "@former-root C:/dev/OLD_NAME\n"
+        "top = analog/layout/*channel*, analog/layout/gen_*_template.py\n"
+        "core = chip/floorplan/core_*\n"
+        "padring\n"))
+    assert runlog.declared_cells(d) == {"top", "core", "padring"}, \
+        runlog.declared_cells(d)
+    globs, former = runlog.declared_rules(d)
+    assert [c for c, _g in globs] == ["top", "core"] and former == ["C:/dev/OLD_NAME"]
+    rules = runlog.rules_for(d)
+    roster = runlog.cells(d)
+    here = d.replace("/", "\\")
+    assert runlog.cell_of([here + "\\analog\\layout\\check_top_channel.py"],
+                          roster, rules) == "top"
+    assert runlog.cell_of([here + "\\analog\\layout\\gen_right_template.py"],
+                          roster, rules) == "top"
+    assert runlog.cell_of([r"C:\dev\OLD_NAME\chip\floorplan\core_route.py"],
+                          roster, rules) == "core"
+    # a name-level match still wins over a rule, and a miss is a miss
+    assert runlog.cell_of([here + "\\work\\padring\\x.il"], roster, rules) == "padring"
+    assert runlog.cell_of([here + "\\analog\\layout\\render_gds.py"],
+                          roster, rules) is None
+    # a rule's glob is never mistaken for a cell name
+    assert "analog/layout/*channel*" not in roster
+
+
 def main():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

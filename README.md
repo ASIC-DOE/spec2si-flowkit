@@ -50,11 +50,14 @@ the commands that are not.
 
 ## What is shared
 
-Forty-two files, vendored byte-identically into all four ports and
-hash-gated — 168 checks on every `sync.py --check-all`.
+Eighty-three files, vendored byte-identically into all four ports and
+hash-gated — 332 checks on every `sync.py --check-all`.
 
 | What | Files | Why it is node-agnostic |
 |---|---|---|
+| **The artifact browser** | `browse/` (model, roots, tools, cluster, estimate, launch, server + their test) | A read-only viewer over a repo's own results: listings badged from what the flow wrote, GDS renders, waveforms, the design record (which captured view is this file), the cluster's trees. Stdlib-only by construction and PDK-blind; what differs per port is `roots.json`, a declaration it never copies, and what is engine-specific (the transient reader, the abstract track map) it LOCATES in the served repo and degrades without. Vendored 2026-09-12 ([ADR-0004](docs/decisions/0004-browse-and-transport-vendored.md)); until then three ports reached across the disk into a fourth to draw a picture |
+| **The cluster transport** | `jobs/` (remote, hosts, procscan, the job CLI, the cluster-side bundle + their tests), landing in each port's deployment area | An ssh round trip that cannot be corrupted by quoting, a host chooser, the licence-holding process scanner. A SITE fact, not a node one: all four ports share one cluster, and the browser reads it through this |
+| **The agent-loop runlog** | `browse/runlog.py`, `browse/agentview.py` + their tests | One agent turn that touched a known cell is one attempt; which cells exist comes from the port's tree, its design record and its declared roster |
 | **The flow policy** | `policy/flow_policy.core.json` (v1.2.0, **19 rules**) + `conformance/test_policy_conformance.py` | Each rule is stated as a portable *principle*. The enforcement point is not shared — see below |
 | **The docmeta genre vocabulary** | `policy/docmeta.core.json` (8 genres, 5 aliases) | A genre is a **staleness contract**, and a contract shared by three repos is exactly what must not diverge. All three had adopted `docmeta` independently and drifted — 26 tracked docs carried a genre the generator rejected |
 | **The documentation model** | `docs/docmodel.py` | Frontmatter, the genre vocabulary, a static-AST API extractor, doc discovery, the link and freshness checks. A docstring is a docstring on 65 nm and on 28 nm |
@@ -190,11 +193,12 @@ tags, an "attempt" being a *turn* where a round trip spans a mean of 2.0, and
 data: **the session transcripts are not durable** (30-day retention), so the
 committed log is the only record past a month.
 
-⚠️ The tool it analyses, `browse/runlog.py`, still lives in **spec2si-tsmc65**
-and serves the other repos through `RUNLOG_REPO` — the same cross-repo shape
-`housekeeping/` had before it was vendored. It has not moved because it
-imports `agentview` from the same directory, so the two travel together or
-not at all.
+The tool it analyses, `browse/runlog.py`, is vendored from here into every
+port's `browse/` (since 2026-08-26, with `agentview` beside it; the whole
+browser followed on 2026-09-12). Since 2026-09-12 a port's design record is
+its roster too, and a port can declare PATH RULES for chip-level work whose
+files name no cell — xt011's die work was 603 of 618 turns unrecorded
+before that, with the harvest firing on every session end.
 
 ## Licence
 

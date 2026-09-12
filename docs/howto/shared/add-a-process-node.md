@@ -40,7 +40,18 @@ python3 sync.py --to C:\dev\spec2si-<node>
 
 That copies the node-agnostic files byte-identically: the flow policy and
 its conformance test, the docmeta genre vocabulary, the documentation model
-and its backends, the runnable-claim gate, and the IR solver.
+and its backends, the runnable-claim gate, the IR solver, the routing core,
+the DRC loop, the housekeeper, the agent-loop runlog, the artifact browser
+and the cluster transport it reads through.
+
+**The browser is onboarded by one file, not by code.** Write
+`browse/roots.json` naming the trees worth listing (and, if the port's
+renderer is not at `analog/engine/layout/render_gds.py` or takes a
+different argument order, declare it there); `python browse/server.py` then
+serves the new port. `analog/specs/runlog_cells.txt` declares the cells the
+runlog should count when the tree does not name them, and
+`.claude/settings.json` installs the SessionEnd harvest — copy a sibling's.
+[browse-your-results](browse-your-results.md) has the details.
 
 ⛔ **Never hand-edit a vendored copy.** Change it in the flowkit, re-vendor,
 and let each port decide whether its status for the changed rule still
