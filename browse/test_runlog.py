@@ -466,6 +466,21 @@ def test_a_declared_path_rule_counts_chip_level_work():
     assert "analog/layout/*channel*" not in roster
 
 
+def test_path_rules_relativise_against_the_windows_root_under_wsl():
+    """The hook runs under WSL, where the repo root is /mnt/c/dev/<repo>,
+    and the transcripts carry C:\\dev\\<repo>\\... -- so a rule that
+    relativised against the WSL root alone matched 32 attempts from the
+    hook against 123 from Windows, on the same transcripts."""
+    rules = runlog.Rules("/mnt/c/dev/repo",
+                         [runlog.transcript_cwd("/mnt/c/dev/repo")],
+                         {}, [("top", ["analog/layout/*channel*"])])
+    assert rules.cell_for([r"C:\dev\repo\analog\layout\check_top_channel.py"]) == "top"
+    # and rules_for adds that spelling itself
+    got = runlog.rules_for("/mnt/c/dev/never-such-repo")
+    assert got.relativise(r"C:\dev\never-such-repo\x\y.py") == "x/y.py", \
+        got.relativise(r"C:\dev\never-such-repo\x\y.py")
+
+
 def main():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]

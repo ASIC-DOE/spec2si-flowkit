@@ -484,7 +484,13 @@ def rules_for(root=None):
     root = root or ROOT
     if root not in _RULES_CACHE:
         globs, former = declared_rules(root)
-        _RULES_CACHE[root] = Rules(root, former, record_origins(root), globs)
+        # The transcripts carry WINDOWS paths and the hook runs under WSL,
+        # where this file's own root is `/mnt/c/...` -- so the Windows
+        # spelling of the root (transcript_cwd) is a root too, or not one
+        # declared glob would ever match from the hook. Measured: 32
+        # attempts under WSL against 123 on Windows, same transcripts.
+        roots = [transcript_cwd(root)] + list(former)
+        _RULES_CACHE[root] = Rules(root, roots, record_origins(root), globs)
     return _RULES_CACHE[root]
 
 
