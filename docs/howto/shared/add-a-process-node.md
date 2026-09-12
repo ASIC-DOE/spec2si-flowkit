@@ -46,9 +46,9 @@ and the cluster transport it reads through.
 
 **The browser is onboarded by one file, not by code.** Write
 `browse/roots.json` naming the trees worth listing (and, if the port's
-renderer is not at `analog/engine/layout/render_gds.py` or takes a
-different argument order, declare it there); `python browse/server.py` then
-serves the new port. `analog/specs/runlog_cells.txt` declares the cells the
+renderer is not at the engine's conventional location or takes a different
+argument order, declare it there); `python browse/server.py` then serves
+the new port. `analog/specs/runlog_cells.txt` declares the cells the
 runlog should count when the tree does not name them, and
 `.claude/settings.json` installs the SessionEnd harvest — copy a sibling's.
 [browse-your-results](browse-your-results.md) has the details.
