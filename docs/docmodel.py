@@ -37,7 +37,7 @@ import subprocess
 
 #: Used only when the vendored core is absent -- see `DocModel._load_core`.
 FALLBACK_GENRES = ("overview", "guide", "reference", "decision", "plan",
-                   "study", "finding", "log")
+                   "study", "finding", "log", "datasheet")
 FALLBACK_REQUIRED = ("genre", "status", "updated", "summary")
 
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
@@ -425,7 +425,74 @@ class DocModel(object):
                     self.rel(p), g, "/".join(self.genres)))
             elif g and g not in self.genres:
                 aliased[g] = aliased.get(g, 0) + 1
+        bad += self._check_supersession()
         return bad, warn, aliased
+
+    def _check_supersession(self):
+        """⛔ A SUPERSEDED DOC MUST NAME ITS SUCCESSOR, AND THE PAIR MUST AGREE.
+
+        The `decision` contract says a decision is never edited to reflect a
+        new choice -- it is SUPERSEDED, and its own status becomes
+        `superseded`. Nothing enforced the second half, and nothing recorded
+        WHICH decision replaced it, so a reader had no way to tell a live
+        decision from a dead one except by date.
+
+        ⛔ THAT IS NOT HYPOTHETICAL. `POWER_PLAN.md` (decision, 2026-07-25,
+        the v1 chip's mesh geometry) sat at `status: active` after its
+        successor was accepted on 2026-09-04, and was then read as current
+        guidance and used to derive a rule about the v6 chip. Two live
+        decisions on one question is the defect; the date is not a status.
+
+        Three rules, each checkable:
+          * `status: superseded` requires `superseded_by:`
+          * the target must exist
+          * the target must not itself be superseded -- a pointer into a dead
+            document is worse than none, because it reads as an answer
+        And symmetrically, a `supersedes:` target must actually say it is
+        superseded, so the pair cannot drift apart.
+        """
+        out = []
+        meta_by_rel = {}
+        for p, meta, _b in self.iter_docs():
+            if meta:
+                meta_by_rel[self.rel(p).replace("\\", "/")] = meta
+
+        def _resolve(rel, target):
+            t = str(target).strip().replace("\\", "/")
+            if t in meta_by_rel:
+                return t
+            base = os.path.dirname(rel)
+            j = os.path.normpath(os.path.join(base, t)).replace("\\", "/")
+            return j if j in meta_by_rel else None
+
+        for rel, meta in sorted(meta_by_rel.items()):
+            st = str(meta.get("status", "")).strip()
+            by = meta.get("superseded_by")
+            if st == "superseded" and not by:
+                out.append("{}: status is 'superseded' but no 'superseded_by:'"
+                           " -- name the decision that replaced it".format(rel))
+            if by:
+                tgt = _resolve(rel, by)
+                if tgt is None:
+                    out.append("{}: superseded_by '{}' does not resolve to a "
+                               "tagged doc".format(rel, by))
+                elif str(meta_by_rel[tgt].get("status", "")) == "superseded":
+                    out.append("{}: superseded_by '{}' is ITSELF superseded -- "
+                               "a pointer into a dead document reads as an "
+                               "answer".format(rel, by))
+            sup = meta.get("supersedes")
+            if sup:
+                for one in (sup if isinstance(sup, list) else [sup]):
+                    tgt = _resolve(rel, one)
+                    if tgt is None:
+                        out.append("{}: supersedes '{}' does not resolve"
+                                   .format(rel, one))
+                    elif str(meta_by_rel[tgt].get("status", "")) != "superseded":
+                        out.append("{}: supersedes '{}', but that doc's status "
+                                   "is '{}' -- both halves or neither"
+                                   .format(rel, one,
+                                           meta_by_rel[tgt].get("status")))
+        return out
 
     def coverage(self):
         """(tagged, untagged, by_genre) -- the adoption number, for the

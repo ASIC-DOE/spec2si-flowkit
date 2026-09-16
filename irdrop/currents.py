@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Supply currents from a simulated operating point. VENDORED.
 
-⚠️ **THIS FILE IS VENDORED.** The master is `SPEC2SI_FLOWKIT/irdrop/
+⚠️ **THIS FILE IS VENDORED.** The master is `spec2si-flowkit/irdrop/
 currents.py`; every consumer holds a byte-identical copy that `sync.py`
 hash-checks. Change the master, re-vendor.
 

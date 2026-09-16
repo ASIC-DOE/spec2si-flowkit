@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A DC resistive solver for supply grids. NODE-AGNOSTIC, VENDORED.
 
-⚠️ **THIS FILE IS VENDORED.** The master is `SPEC2SI_FLOWKIT/irdrop/
+⚠️ **THIS FILE IS VENDORED.** The master is `spec2si-flowkit/irdrop/
 solver.py`; every consumer holds a byte-identical copy that `sync.py`
 hash-checks. Never edit a vendored copy -- change the master, re-vendor,
 and let each consumer decide whether its adapter still holds.

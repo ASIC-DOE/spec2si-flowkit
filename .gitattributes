@@ -4,7 +4,7 @@
 #
 # Here it is not a style preference, it is LOAD-BEARING. The whole
 # distribution model is "vendor a byte-identical copy and hash-check it".
-# If this repo checked out CRLF on Windows while AIML_ASIC (which pins LF)
+# If this repo checked out CRLF on Windows while spec2si-tsmc65 (which pins LF)
 # checked out LF, every vendored copy would hash differently on a fresh
 # clone and the drift gate would report DRIFTED on files nobody touched --
 # a gate that cries wolf is a gate that gets switched off.

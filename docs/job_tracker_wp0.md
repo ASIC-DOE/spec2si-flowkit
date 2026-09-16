@@ -18,7 +18,7 @@ WP0 is complete for source ownership, targeted restoration and offline distribut
 
 The working branch started at `8b9a34b`, with existing uncommitted research/memory work. Its cached `origin/main` was `da471d3`. Searching local refs and unreachable objects found no tracker source, while tsmc28's instructions correctly described flowkit vendoring. The earlier scope called this an ownership inconsistency. A fresh remote inspection resolved it as a stale-checkout problem.
 
-Fetching `origin/main` exposed `df45995b7b56732ce113afe5c435c6540a71dbc2`, containing `jobs/`, its README and the mappings. Its decision is `docs/decisions/0004-browse-and-transport-vendored.md`. The local branch also has an independently authored ADR-0004 about repository mirrors; that numbering collision is a separate documentation integration issue.
+Fetching `origin/main` exposed `df45995b7b56732ce113afe5c435c6540a71dbc2`, containing `jobs/`, its README and the mappings. Its decision is `docs/decisions/0004-browse-and-transport-vendored.md`. The local branch also has an independently authored ADR-0004 about repository mirrors; the publication merge resolved that collision by assigning the mirror decision ADR-0005.
 
 The audit fetched refs but did not merge, reset, rebase or overwrite existing working changes. It restored only the 20 files in upstream `jobs/` and copied the 19 jobs mappings into the local `sync.py`. The README is upstream-only; the consumer's longer process-specific README is deliberately not vendored. Unrelated upstream browser, routing, housekeeping and documentation changes remain outside this work.
 

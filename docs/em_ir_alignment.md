@@ -16,14 +16,14 @@ block to give it.*
 
 ## 1. The gap, in the repos' own words
 
-`ONR_ADFT_ASIC/chip/floorplan/pll_rails.json`, `_still_open`:
+`spec2si-tsmc28/chip/floorplan/pll_rails.json`, `_still_open`:
 
 > IR drop is NOT modelled anywhere in this repo — `em_power.py` sizes for
 > current density only. A 1.1 mA rail that meets EM can still drop
 > millivolts a VCO's phase noise cares about, and VDDL is the supply whose
 > noise becomes phase noise directly.
 
-`ONR_ADFT_ASIC/tech/probes/extract_metal_res.py` opens with *"Nothing in
+`spec2si-tsmc28/tech/probes/extract_metal_res.py` opens with *"Nothing in
 this repo could compute an IR drop."* That probe fixed half of it — the
 metal sheet resistance was in the tech LEF the whole time. The other half
 is a solver and the currents to drive it.
@@ -44,17 +44,17 @@ Three inputs. Only one of them is new code.
 | resistance | the vendor RC file | **extracted on all three nodes.** AIML + ONR from their QRC `.ict`; XT011 from its tech LEF |
 | topology | the rail plan already on disk | exists, already carries width and layer |
 
-**Currents.** `AIML_ASIC/analog/engine/wave.py` (`read_psf`, and it already
+**Currents.** `spec2si-tsmc65/analog/engine/wave.py` (`read_psf`, and it already
 handles this flow's misnamed `op1.dc`), `spectre_flow.parse_value`/`afile`,
-and `ONR_ADFT_ASIC/tech/probes/parse_oppoint.py` (SI-prefix aware — a naive
+and `spec2si-tsmc28/tech/probes/parse_oppoint.py` (SI-prefix aware — a naive
 `float()` on a Spectre oppoint mis-scales by the prefix). Two call sites
 already pull supply current off the operating point:
-`AIML_ASIC/analog/engine/layout/pex_ota.py:58` and `pex_vref.py:41`.
-On the transient side `ONR_ADFT_ASIC/analog/engine/char/libgen.py`
+`spec2si-tsmc65/analog/engine/layout/pex_ota.py:58` and `pex_vref.py:41`.
+On the transient side `spec2si-tsmc28/analog/engine/char/libgen.py`
 `measure_supply_current` already returns **`(mean_A, peak_A)`** — the peak
 is measured today and nothing consumes it.
 
-**Topology.** `AIML_ASIC/analog/engine/layout/assemble_top.py` `plan_rails()`
+**Topology.** `spec2si-tsmc65/analog/engine/layout/assemble_top.py` `plan_rails()`
 returns `{net: {y, x1, x2, w, layer}}` and `plan["nets"]` carries endpoints
 with per-net current; ONR has `chip/floorplan/pll_rails.json` (inputs, each
 with a `basis`) and the derived `pll_power.json`.
@@ -72,7 +72,7 @@ node, the binding segment, and the EM margin on that same segment.
 
 Measured 2026-08-06, not assumed.
 
-| capability | AIML_ASIC (65 nm) | ONR_ADFT_ASIC (28 nm) | XT011_ASIC (110 nm) |
+| capability | spec2si-tsmc65 (65 nm) | spec2si-tsmc28 (28 nm) | spec2si-xt011 (110 nm) |
 |---|---|---|---|
 | metal Imax | `em_card.metal_imax_ma`, keyed **by layer name** M1–M9 | `em.metal_mA`, keyed **by tier class** M1/Mx/My/Mz/Mu/Mr | — |
 | Imax formula | `k·(w − dw)`, `w` **drawn** (no `layout_scale`) | `k·(0.9·w − offset)` — the 0.9 is `layout_scale`, a process shrink | `k·w`, **no offset**, width-tiered; `em_output_wlt drawn` |
@@ -173,9 +173,9 @@ resistance are both properties of the metal *option*, not of the node.**
 
 | repo | node | option string | recorded where | read from |
 |---|---|---|---|---|
-| AIML_ASIC | TSMC 65 nm LP | `1P9M 6X1Z1U` | `metal_stack` + `process` in `tsmc65_gridcard.json` (added `c002851`) | the deck path and card id, which agree — **not** yet a PDK read |
-| ONR_ADFT_ASIC | TSMC 28 nm HPC+/ULL | `9M_5X1Y1Z1U_UT-AlRDL`, flavor `HPC_PLUS`, PDK `CRN28HPC+ULL_v1.8_2p3a_20211109` | `tech/cards/tsmc28_gridcard.json` → `process` | the `nch_mac` CDF `pdkVersion` parameter |
-| XT011_ASIC | X-FAB XT011 PDSOI | option `1157` — **adopted, not decoded**; `metal_count: null` | `tech/cards/xt011_gridcard.template.json` → `process` | reference designs |
+| spec2si-tsmc65 | TSMC 65 nm LP | `1P9M 6X1Z1U` | `metal_stack` + `process` in `tsmc65_gridcard.json` (added `c002851`) | the deck path and card id, which agree — **not** yet a PDK read |
+| spec2si-tsmc28 | TSMC 28 nm HPC+/ULL | `9M_5X1Y1Z1U_UT-AlRDL`, flavor `HPC_PLUS`, PDK `CRN28HPC+ULL_v1.8_2p3a_20211109` | `tech/cards/tsmc28_gridcard.json` → `process` | the `nch_mac` CDF `pdkVersion` parameter |
+| spec2si-xt011 | X-FAB XT011 PDSOI | option `1157` — **adopted, not decoded**; `metal_count: null` | `tech/cards/xt011_gridcard.template.json` → `process` | reference designs |
 
 **The clearest evidence for this whole section turned up in the PDK tree
 itself.** `$TSMC_PDK` on the cluster resolves through `$OPTION`, and the
@@ -200,7 +200,7 @@ layer name.** A layer name carries no EM or resistance meaning without the
 option string beside it.
 
 This is not hypothetical. It has already fired once, on the only node that
-has an explicit map: `ONR_ADFT_ASIC/tech/process.py` `METAL_CLASS` had M6,
+has an explicit map: `spec2si-tsmc28/tech/process.py` `METAL_CLASS` had M6,
 M7 and M8 each mapped one tier too high, and **M8 landed on `Mr`, the
 aluminium redistribution tier, whose limits are far more permissive** — a
 power rail on M8 would have been sized against the wrong metal entirely.
@@ -348,7 +348,7 @@ which is what that contract is for.
 ## 7. Voltus
 
 Worth doing, and cheaper than expected: the recipe is already written down
-in `AIML_ASIC/dig_flows/dig_tools_dig_flow_18.x_19.x/CERN_generic_flow_2020/built_project/signoff/voltus/`
+in `spec2si-tsmc65/dig_flows/dig_tools_dig_flow_18.x_19.x/CERN_generic_flow_2020/built_project/signoff/voltus/`
 — `voltus_init.tcl` (`read_db`, `read_spef` across three RC corners,
 `check_pg_shorts`, `check_power_vias`, `set_pg_nets`,
 `set_rail_analysis_domain`, `write_pg_library` → `techonly.cl`), plus
@@ -357,7 +357,7 @@ QRC tech file and a license check on the cluster.
 
 Its role here is **correlation, not competition**. `ctrl_top` is the one
 block with a real Innovus PG mesh (29 % / 27 % M8/M9 occupancy per
-`AIML_ASIC/hybrid_adc/POWER_PLAN.md`), so it is the natural place to run
+`spec2si-tsmc65/hybrid_adc/POWER_PLAN.md`), so it is the natural place to run
 both and measure how far the fast estimate lands from signoff.
 
 ## 8. Sequencing
@@ -440,6 +440,6 @@ one map turns that option into a tier.
 
 No rule values. The EM constants, derate tables, boost tables and sheet
 resistances are foundry-confidential and live in the gitignored cards
-(`AIML_ASIC` `em_card.json`, `ONR_ADFT_ASIC` `tech/cards/rules_card.json`).
+(`spec2si-tsmc65` `em_card.json`, `spec2si-tsmc28` `tech/cards/rules_card.json`).
 What is recorded here is **structure** — which keys exist, which are read,
 which formula shape each node uses, and which option string fixes them.

@@ -85,11 +85,65 @@ use its own name as the layer name and omit the list.
     },
     "min_space_pair_um": ..,
     "rect_cut_um": [long, short],        // omit if the kit has none
-    "redundancy_tiers": [ {..} ],        // [] = measured absent
+    "redundancy_tiers": [ {..} ],        // [] = measured absent, see §4b
     "plate_proximity_rules": [ {..} ]    // [] = measured absent
   }
 }
 ```
+
+## 4b. `redundancy_tiers` — the field whose SHAPE is load-bearing
+
+This was `{..}` here until 2026-08-26, and it is the one field where the
+shape of the value decides whether metal is legal: `audit.via_wide_landing`
+reads the option list directly, so an option this schema does not describe
+is a construction the gate rejects.
+
+```jsonc
+"redundancy_tiers": [
+  {
+    "rule": "VIAx.R.2",
+    "width_and_length_gt_um": 0.18,   // null = UNGATED: applies to every
+                                      // connection on the tier (VIAu.R.2)
+    "options": [                      // ANY ONE of these satisfies the tier
+      {"count": 1, "shape": "rectangular"},
+      {"count": 2, "shape": "square",      "max_space_um": 0.10},
+      {"count": 3, "shape": "mixed", "square": 2, "rect": 1,
+                                           "max_space_um": 0.65}
+    ],
+    "deck_body": "G1_A2R/G2_A2R merged at ..",   // optional provenance
+    "measured": "2026-08-26 viapair_probe: .."   // optional: what DRC did
+  }
+]
+```
+
+Five rules the readers depend on, each already got wrong once:
+
+- **`shape` defaults to `"square"` when absent.** Only `VIAx` has two cut
+  forms, so the thick tiers state their options without one. Read the other
+  way, every tier above `VIA5` silently became single-cut and Calibre
+  answered with 16 `VIA6.R.2` and 20 `VIA7.R.2`.
+- **An option with no `max_space_um` is ONE cut and no merge** — the lone
+  slot. Options carrying one are satisfied when that many cuts *merge*, and
+  merging is a CHAIN at that spacing, not a radius: four cuts in a row at
+  the ceiling are one merged region and satisfy a count of four.
+- **A tier may be stated flat** — `{rule, width_and_length_gt_um,
+  max_space_um}` with no `options` at all. That is one construction, two
+  square cuts, and it is what `via_pair_space` exists for. A reader that
+  consults only `options` turns such a tier into "nothing satisfies this"
+  and fires on every cut on it.
+- **The SITE's tier is the highest any ONE of its two conductors reaches.**
+  The deck's predicate is a disjunction — `(Mx wide AND Mx+1i) OR (Mx+1
+  wide AND Mxi)` — so a 0.10 µm stub landing on a 1.0 µm bus is governed by
+  the bus. Checking only the declared landing passes a two-square pair on a
+  site whose tier has no two-square option at any spacing.
+- **`width_and_length_gt_um` is `min(w, h) > thr`, not width alone.** A
+  0.10 × 3.0 strap owes nothing and a 0.30 × 3.0 strap is the lower tier;
+  length does not promote a site. This is what the deck's `WITH WIDTH`
+  measures, confirmed by probe rather than read.
+
+`mixed` carries its own `square` and `rect` counts because the deck states
+those combinations explicitly (`(SQR >=2 <=3) AND (REC ==1)`); dropping
+them loses the cheapest construction a narrow landing can hold.
 
 `enclosure.overrides` is the **designed fix for the M9/VIA8 class**:
 tsmc28 measured M9-over-VIA8 needing 0.300 µm where the card said 0.080

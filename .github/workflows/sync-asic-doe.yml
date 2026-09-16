@@ -1,0 +1,60 @@
+name: Sync ASIC-DOE mirror
+
+on:
+  push:
+  create:
+  delete:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-asic-doe
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    if: github.repository == 'mandalsoumyajit/spec2si-flowkit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_REPOSITORY: mandalsoumyajit/spec2si-flowkit
+      DESTINATION_REPOSITORY: ASIC-DOE/spec2si-flowkit
+    steps:
+      - name: Read current source and synchronization script
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global credential.https://github.com.helper '!f() { printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; }; f'
+          git clone --bare "https://github.com/$SOURCE_REPOSITORY.git" "$RUNNER_TEMP/source.git"
+          git -C "$RUNNER_TEMP/source.git" show refs/heads/main:.github/scripts/sync_asic_doe.py > "$RUNNER_TEMP/sync_asic_doe.py"
+
+      - name: Configure destination access
+        shell: bash
+        env:
+          MIRROR_SSH_KEY: ${{ secrets.ASIC_DOE_SYNC_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$MIRROR_SSH_KEY" || { echo 'Missing ASIC_DOE_SYNC_SSH_KEY repository secret'; exit 1; }
+          umask 077
+          printf '%s\n' "$MIRROR_SSH_KEY" | tr -d '\r' > "$RUNNER_TEMP/mirror_key"
+          # GitHub's published Ed25519 host key, verified through api.github.com/meta.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/mirror_known_hosts"
+
+      - name: Synchronize and verify all branches, tags and LFS objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_SSH_COMMAND="ssh -i '$RUNNER_TEMP/mirror_key' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$RUNNER_TEMP/mirror_known_hosts'"
+          python3 "$RUNNER_TEMP/sync_asic_doe.py" --repo "$RUNNER_TEMP/source.git" --destination "git@github.com:$DESTINATION_REPOSITORY.git"
+
+      - name: Remove temporary credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/mirror_key" "$RUNNER_TEMP/mirror_known_hosts"
+          git config --global --unset-all credential.https://github.com.helper || true

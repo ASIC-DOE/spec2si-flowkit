@@ -1,5 +1,5 @@
 <!--docmeta
-title: ADR-0004 — personal development repositories with one-way ASIC-DOE mirrors
+title: ADR-0005 — personal development repositories with one-way ASIC-DOE mirrors
 genre: decision
 status: accepted
 area: top
@@ -8,7 +8,7 @@ updated: 2026-09-03
 summary: Keep development under mandalsoumyajit and expose synchronized copies in ASIC-DOE. Use a public fork for flowkit and standalone internal repositories for the four private process ports. Dedicated deploy keys, destination write restrictions, atomic non-forced updates and ref verification make drift visible without discarding changes.
 -->
 
-# ADR-0004 — personal development repositories with one-way ASIC-DOE mirrors
+# ADR-0005 — personal development repositories with one-way ASIC-DOE mirrors
 
 **Status:** accepted · 2026-09-03.
 

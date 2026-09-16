@@ -33,7 +33,7 @@ FILES = [
     # The docmeta genre vocabulary. Shared for the same reason as the policy
     # core and found the same way: all three repos adopted the `docmeta`
     # frontmatter convention independently, and by 2026-08-20 twenty-six
-    # tracked docs carried a genre AIML_ASIC's generator rejects -- so a
+    # tracked docs carried a genre spec2si-tsmc65's generator rejects -- so a
     # documentation generator could not be shared across the three repos at
     # all, whatever else was in it. A genre is a STALENESS CONTRACT, and a
     # contract is exactly the kind of thing that must not diverge.
@@ -92,6 +92,44 @@ FILES = [
     ("docs/texbackend.py", "docs/texbackend.py"),
     ("docs/test_texrender.py", "docs/test_texrender.py"),
     ("docs/test_pdf.py", "docs/test_pdf.py"),
+    # The RUNNABLE-CLAIM gate. Shared under the same seam as docmodel: it asks
+    # only whether a path a doc names still exists and whether a flag a
+    # command line passes still appears in that script -- questions with the
+    # same answer on every node, needing no PDK, no tool and no cluster.
+    # ⭐ It exists because the checks that DID run were green over a how-to
+    # guide for three weeks while nothing could say whether its commands still
+    # ran: `gen.py check` validates what a document IS (frontmatter, genre,
+    # links between docs) and structurally never looks at a `.py` path.
+    # Severity is not its own opinion -- it reads docmeta.core.json's
+    # per-genre staleness contract, gates `guide`/`overview`, and leaves a
+    # `log` (which that file calls "explicitly ALLOWED to be stale") advisory.
+    ("docs/test_claims.py", "docs/test_claims.py"),
+    # ⭐ THE SHARED HOW-TO SPINE -- the first PROSE in this list, and it earns
+    # the slot the same way the code does: these four pages describe the half
+    # of the method that does not change when the node does (what a stage is,
+    # what a verdict means, how the core gets into a repo, how a port is stood
+    # up). Nothing in them names a tool, a deck, a PDK path or a design.
+    #
+    # They land in `docs/howto/shared/` so they can never collide with a
+    # port's OWN how-to pages, which sit in `docs/howto/` and are where every
+    # Calibre-vs-Pegasus, PyCell-vs-SKILL difference belongs. A port's index
+    # links to both. ⛔ Vendored prose must point at machine-readable things
+    # rather than restate them -- a restated signature is exact the day it is
+    # written and diverges silently after, and it would now do so in 5 repos.
+    # ⚠ AND A VENDORED PAGE MAY ONLY NAME PATHS THAT EXIST IN *EVERY* REPO
+    # IT LANDS IN. `conformance/test_policy_conformance.py` is real here and
+    # nowhere else -- it vendors to `policy/` -- so naming it in shared prose
+    # passed the claims gate in the flowkit and failed it in all four ports.
+    # The port-side spelling is the only correct one for a shared page.
+    ("docs/howto/shared/README.md", "docs/howto/shared/README.md"),
+    ("docs/howto/shared/the-method.md", "docs/howto/shared/the-method.md"),
+    ("docs/howto/shared/vendoring.md", "docs/howto/shared/vendoring.md"),
+    ("docs/howto/shared/run-an-agent-session.md",
+     "docs/howto/shared/run-an-agent-session.md"),
+    ("docs/howto/shared/add-a-process-node.md",
+     "docs/howto/shared/add-a-process-node.md"),
+    ("docs/howto/shared/browse-your-results.md",
+     "docs/howto/shared/browse-your-results.md"),
     # The routing core, phase 1: pure geometry and the tier-1 audit engine.
     # Shared under the same seam as the IR solver -- no PDK API, no deck, no
     # PCell, only numbers a caller's `rules` object hands in. The proof the
@@ -137,6 +175,68 @@ FILES = [
     # has lied to these flows before.
     ("routekit/gdsw.py", "routekit/gdsw.py"),
     ("routekit/test_gdsw.py", "routekit/test_gdsw.py"),
+    # Cluster housekeeping. Shared for the plainest possible reason: it
+    # operates on `~/Documents/*/analog/work` -- EVERY node's tree at once,
+    # on one shared NFS home. It was written in the tsmc28 checkout only
+    # because that is where the session happened to be sitting, and the
+    # motivating example is in xt011: `drc_v1`..`drc_v16`, fifteen of which
+    # were obsolete the moment the next one completed.
+    #
+    # It touches no PDK. `run_features.py` reads mtimes and filenames;
+    # `stale_classify.py` decides over those features and nothing else. The
+    # one node-shaped thing in either -- the per-tool terminal-file patterns
+    # (Calibre DRC.rep, Pegasus <cell>_drc.sum, strmout.log) -- is an
+    # argument FOR sharing rather than against it: xt011 is the Pegasus
+    # node and tsmc28 the Calibre one, and a completion test that knew only
+    # Calibre scored 97 of 468 runs complete where 254 were.
+    #
+    # What stays in each consumer's own deployment/: installing to ~/bin,
+    # the crontab entry, and push.sh's liveness check. Those are site
+    # concerns; these four files are the logic.
+    # The agent-loop runlog and the transcript reader under it. Shared for
+    # the plainest reason of all: it already served every repo, through a
+    # `RUNLOG_REPO` env var pointing at ONE checkout's `browse/runlog.py`.
+    # Every other consumer's SessionEnd hook reached across the disk into
+    # spec2si-tsmc65 -- which is how tsmc28's harvest could be dead for 18
+    # days and xt011's never work at all without either being noticed.
+    #
+    # ⚠️ THE DESTINATION IS `browse/`, NOT `runlog/`. `browse/server.py`
+    # imports `agentview` as a sibling, so the pair has to land where that
+    # import already resolves; the flowkit-side name is its own so the kit
+    # is not implying it owns the whole dashboard. Vendoring the pair also
+    # retires the cross-repo path: a consumer's hook becomes
+    # `cd <repo>/browse && python3 runlog.py harvest`, with no env var and
+    # therefore no `VAR=/unix/path` for MSYS to rewrite.
+    #
+    # Both are stdlib-only, which is this kit's bar: agentview imports
+    # json/os/time, runlog adds hashlib/re/sys and agentview.
+    ("browse/agentview.py", "browse/agentview.py"),
+    ("browse/runlog.py", "browse/runlog.py"),
+    ("browse/test_agentview.py", "browse/test_agentview.py"),
+    ("browse/test_runlog.py", "browse/test_runlog.py"),
+    # THE ARTIFACT BROWSER, and the cluster transport it reads through.
+    # Vendored 2026-09-12 (ADR-0004). Until then one port held the
+    # implementation and the other three carried a launcher stub that
+    # reached ACROSS THE DISK into it -- and the transport was reached the
+    # same way, two hops out. The browser is stdlib-only by construction
+    # (that is its own principle 2), knows no PDK, and everything
+    # engine-specific it draws -- the transient reader, the abstract's
+    # track map -- it LOCATES in the served repo and degrades without.
+    # What differs per port is a JSON file it never copies: `roots.json`,
+    # which is how a port is now onboarded (add the file, re-vendor).
+    ("browse/model.py", "browse/model.py"),
+    ("browse/roots.py", "browse/roots.py"),
+    ("browse/tools.py", "browse/tools.py"),
+    ("browse/cluster.py", "browse/cluster.py"),
+    ("browse/estimate.py", "browse/estimate.py"),
+    ("browse/launch.py", "browse/launch.py"),
+    ("browse/server.py", "browse/server.py"),
+    ("browse/test_browse.py", "browse/test_browse.py"),
+    ("housekeeping/run_features.py", "housekeeping/run_features.py"),
+    ("housekeeping/stale_classify.py", "housekeeping/stale_classify.py"),
+    ("housekeeping/attic_sweep.sh", "housekeeping/attic_sweep.sh"),
+    ("housekeeping/stale_labels.sample.json",
+     "housekeeping/stale_labels.sample.json"),
     # DRC-IN-THE-LOOP. The signoff deck's own markers ARE the positions, so
     # a repair answers THEM rather than re-deriving the violating shapes
     # from the plan -- which is a second model of a question something else
@@ -163,9 +263,12 @@ FILES = [
     ("drcloop/test_markers.py", "drcloop/test_markers.py"),
     ("drcloop/test_triage.py", "drcloop/test_triage.py"),
     ("drcloop/test_loop.py", "drcloop/test_loop.py"),
-    # Restored from upstream c5b8d6a / df45995: flowkit jobs/ is the
-    # canonical source; consumer paths deliberately differ. WP0 changes
-    # no consumer. See docs/job_tracker_wp0.md for provenance and limits.
+    # The transport: an ssh round trip that cannot be corrupted by quoting
+    # (a script over stdin, values bound through quoted heredocs), the host
+    # chooser, the licence-holding process scanner and the job CLI, with
+    # the bundle the cluster side runs. A site fact, not a node one: all
+    # four ports share the one cluster. Its README stays with the port that
+    # wrote it, because it names that port's plan documents.
     ("jobs/__init__.py", "deployment/bnl/jobs/__init__.py"),
     ("jobs/__main__.py", "deployment/bnl/jobs/__main__.py"),
     ("jobs/cli.py", "deployment/bnl/jobs/cli.py"),
@@ -244,14 +347,43 @@ def vendor(dest):
     return n
 
 
+def skips(dest):
+    """Prefixes this consumer has DECLARED it does not take, with a reason.
+
+    ⭐ A GAP A PORT HAS DECIDED ON IS NOT DRIFT, and until this existed there
+    was no way to say so: `check` reported nine `drcloop/*` files MISSING in
+    spec2si-xt011 on every run, forever, because that port reads its PVS
+    results through its own `analog/layout/drc_db.py` -- imported by five
+    modules -- and adopting the shared core is a MIGRATION, not a delivery.
+    A gate that reports a permanent red nobody can clear is a gate that gets
+    ignored, and then the real finding beside it is invisible too.
+
+    So a consumer may declare `"skip": {"<prefix>": "<why>"}` in
+    consumers.json. It is the same idea as `not-implemented` being a PASSING
+    state in flow_policy.json: the gap becomes a sentence someone wrote and a
+    number on every run, instead of an absence nobody can see.
+
+    ⛔ It is NOT a suppression. A skipped prefix that turns out to be present
+    is still compared, and still reports DRIFTED if it has diverged -- a port
+    cannot half-take a file and silence the check on it.
+    """
+    for c in consumers():
+        if os.path.normcase(os.path.abspath(c["path"])) == \
+                os.path.normcase(os.path.abspath(dest)):
+            return c.get("skip") or {}
+    return {}
+
+
 def check(dest):
-    """[(rel, status)] -- 'ok' | 'DRIFTED' | 'MISSING'."""
+    """[(rel, status)] -- 'ok' | 'DRIFTED' | 'MISSING' | 'not taken'."""
     out = []
+    declared = skips(dest)
     for src_rel, dst_rel in FILES:
         src = os.path.join(HERE, src_rel)
         dst = os.path.join(dest, dst_rel)
         if not os.path.exists(dst):
-            out.append((dst_rel, "MISSING"))
+            pre = next((p for p in declared if dst_rel.startswith(p)), None)
+            out.append((dst_rel, "not taken" if pre else "MISSING"))
         elif sha256(dst) != sha256(src):
             out.append((dst_rel, "DRIFTED"))
         else:
@@ -273,16 +405,28 @@ def main(argv):
     else:
         print(__doc__)
         return 2
-    bad = 0
+    bad = declined = 0
     for dest in targets:
         print(os.path.basename(dest.rstrip("/\\")) + ":")
-        for rel, status in check(dest):
+        rows = check(dest)
+        for rel, status in rows:
             print("  {:9s} {}".format(status, rel))
-            bad += status != "ok"
+            bad += status not in ("ok", "not taken")
+            declined += status == "not taken"
+        for pre, why in sorted(skips(dest).items()):
+            if any(r.startswith(pre) and s == "not taken" for r, s in rows):
+                print("  -- not taken: {} -- {}".format(pre, why))
+    if declined:
+        print("\n{} file(s) NOT TAKEN by declaration (consumers.json `skip`) -- "
+              "a decided gap, not drift.".format(declined))
     if bad:
-        print("\n{} file(s) drifted or missing -- re-vendor with "
-              "`sync.py --to <repo>`; never hand-edit a vendored copy."
-              .format(bad))
+        print("\n{} file(s) drifted or missing.".format(bad))
+        # ASCII only: this prints to a Windows console at cp1252 and to the
+        # cluster's tcsh, and a marker glyph here raised UnicodeEncodeError
+        # and took the whole gate down with it.
+        print("!! `--to <repo>` copies the WHOLE list unconditionally and will "
+              "DISCARD a drifted file rather than report a conflict. Resolve "
+              "what `--check` lists first, or copy the one file you changed.")
     return 1 if bad else 0
 
 

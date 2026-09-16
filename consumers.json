@@ -17,7 +17,10 @@
    "name": "spec2si-xt011",
    "node": "X-Fab XT011 PDSOI",
    "path": "C:\\dev\\spec2si-xt011",
-   "policy": "analog/specs/flow_policy.json"
+   "policy": "analog/specs/flow_policy.json",
+   "skip": {
+    "drcloop/": "This port reads its PVS/Pegasus results through its own analog/layout/drc_db.py, imported by atlas.py, lyrdb.py, report.py and two test modules. Adopting the shared core is a MIGRATION of five import sites plus re-verification, not a delivery -- and the shared parser was PROVEN on this port's own five PVS databases, so the algorithms already agree. Re-open when someone owns the migration."
+   }
   },
   {
    "name": "spec2si-sky130",

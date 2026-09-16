@@ -12,7 +12,7 @@ summary: Source and destination mapping, synchronization triggers, manual Action
 
 Development occurs in `mandalsoumyajit/spec2si-*`; GitHub Actions copies Git data
 one way into `ASIC-DOE/spec2si-*`. The rationale is recorded in
-[ADR-0004](decisions/0004-asic-doe-repository-mirrors.md).
+[ADR-0005](decisions/0005-asic-doe-repository-mirrors.md).
 
 This is repository mirroring. It is separate from the root `sync.py` tool that
 distributes selected flowkit files into process-port repositories.
@@ -204,7 +204,7 @@ Update this guide and the per-repository `.github/SYNC.md` notes if behavior cha
 ## Rollout evidence and references
 
 The 2026-09-03 setup finished with successful runs and exact ref comparisons for
-all five repositories. See the dated evidence in [ADR-0004](decisions/0004-asic-doe-repository-mirrors.md).
+all five repositories. See the dated evidence in [ADR-0005](decisions/0005-asic-doe-repository-mirrors.md).
 For current status, use each source repository's Actions page rather than that
 historical verification.
 
