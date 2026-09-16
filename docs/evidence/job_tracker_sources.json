@@ -1,0 +1,580 @@
+{
+  "schema": "spec2si-job-tracker-source-audit/1",
+  "date": "2026-09-16",
+  "upstream_commit": "df45995b7b56732ce113afe5c435c6540a71dbc2",
+  "introduced_by": "c5b8d6a3715d36954257529186bda3835556bbc3",
+  "restoration": "exact Git blob bytes; no private-port source imported",
+  "files": [
+    {
+      "source": "jobs/README.md",
+      "sha256": "5f72cdbb5ff0866ec4bcd475df410efd1b37dc64f12c895e1eaca3b73f35bd65"
+    },
+    {
+      "source": "jobs/__init__.py",
+      "sha256": "3488b335bb63288bbb3ee0a4d3ad068c58fe8b1fde44eee07ea85d9fbb2b02ca"
+    },
+    {
+      "source": "jobs/__main__.py",
+      "sha256": "36a522da7d10b7716d1addab4a570ffcf5f9639c59ca7df501e00e6ffbba86d8"
+    },
+    {
+      "source": "jobs/bin/jobrec.py",
+      "sha256": "805ab7f45ba4cf9dd3bbb551b13ef61c47e2d5059c7afdb6a2f12bb3842005db"
+    },
+    {
+      "source": "jobs/bin/license.py",
+      "sha256": "5ae1c3ee6dad2afaf73efe872f59dcde5e4d5a035edd8def3d7b3607cdbe4ce9"
+    },
+    {
+      "source": "jobs/bin/progress.py",
+      "sha256": "523084c5cae8e9640dd2757d53a0fd0c970a5d15922a24e0186a42672b544803"
+    },
+    {
+      "source": "jobs/bin/report.sh",
+      "sha256": "5039303a3411031b2cad8e066a0d4ac5a86d26fd95834f953ad4400b000031e0"
+    },
+    {
+      "source": "jobs/bin/runjob",
+      "sha256": "b3b0a9e945a60eaaea6e346256ae7b5e945875e33b81a032e2d92b02f0d5342d"
+    },
+    {
+      "source": "jobs/cli.py",
+      "sha256": "d004149816d63e1fb1e9a570d4bf5321fbecaa6d99e0ac274859502892834d9a"
+    },
+    {
+      "source": "jobs/hosts.py",
+      "sha256": "e8224d5618f9828e005215b577d67bb84453ab13d4220d20373b4304c12d12af"
+    },
+    {
+      "source": "jobs/procscan.py",
+      "sha256": "a14c2be0751a28093204defeb4acf142140e9edd020d4d20a87e1af388871195"
+    },
+    {
+      "source": "jobs/remote.py",
+      "sha256": "5f9fc445ff08ac1dfe068f365ea5b94a95d6cb329670bec3c5a93053263b43d9"
+    },
+    {
+      "source": "jobs/test_cli.py",
+      "sha256": "483b05bd9a9b4135467731203bb1cabe8fdd8b13f2c1dc59e3c5600a92c21a7a"
+    },
+    {
+      "source": "jobs/test_harness_can_fail.py",
+      "sha256": "125c7eba9b22956070b829d45a9c9fbda9f0a873a3db2e9b511cb2251c1c818e"
+    },
+    {
+      "source": "jobs/test_hosts.py",
+      "sha256": "d0a4f92e9e408835003063c0cc4efb1790df7c8f5d9f2a7cb57dc225beb9f16f"
+    },
+    {
+      "source": "jobs/test_jobrec.py",
+      "sha256": "a01f099cdfc49a0c3550718003a9710e579a04dc68bad3f41a132d6487e4993c"
+    },
+    {
+      "source": "jobs/test_license.py",
+      "sha256": "a7a50a817fd9723c14ccd98a8bc980f6d337302502469296a9da1c9bb39789b6"
+    },
+    {
+      "source": "jobs/test_procscan.py",
+      "sha256": "dd4c5af376f0681090469020f827dad413fed31f8d50c53249c4c035d48a200d"
+    },
+    {
+      "source": "jobs/test_progress.py",
+      "sha256": "3b4d931a65196e863920017d310c0d1693e9966aeae48f93da1c5bd08ae7e7c7"
+    },
+    {
+      "source": "jobs/test_remote.py",
+      "sha256": "f0ab3debdcb894d94fea5767aef2c17e110ad7d88ed54405a6ab0d4b4cd5e1f9"
+    }
+  ],
+  "distribution": [
+    {
+      "source": "jobs/__init__.py",
+      "destination": "deployment/bnl/jobs/__init__.py"
+    },
+    {
+      "source": "jobs/__main__.py",
+      "destination": "deployment/bnl/jobs/__main__.py"
+    },
+    {
+      "source": "jobs/cli.py",
+      "destination": "deployment/bnl/jobs/cli.py"
+    },
+    {
+      "source": "jobs/hosts.py",
+      "destination": "deployment/bnl/jobs/hosts.py"
+    },
+    {
+      "source": "jobs/procscan.py",
+      "destination": "deployment/bnl/jobs/procscan.py"
+    },
+    {
+      "source": "jobs/remote.py",
+      "destination": "deployment/bnl/jobs/remote.py"
+    },
+    {
+      "source": "jobs/bin/jobrec.py",
+      "destination": "deployment/bnl/jobs/bin/jobrec.py"
+    },
+    {
+      "source": "jobs/bin/license.py",
+      "destination": "deployment/bnl/jobs/bin/license.py"
+    },
+    {
+      "source": "jobs/bin/progress.py",
+      "destination": "deployment/bnl/jobs/bin/progress.py"
+    },
+    {
+      "source": "jobs/bin/report.sh",
+      "destination": "deployment/bnl/jobs/bin/report.sh"
+    },
+    {
+      "source": "jobs/bin/runjob",
+      "destination": "deployment/bnl/jobs/bin/runjob"
+    },
+    {
+      "source": "jobs/test_cli.py",
+      "destination": "deployment/bnl/jobs/test_cli.py"
+    },
+    {
+      "source": "jobs/test_hosts.py",
+      "destination": "deployment/bnl/jobs/test_hosts.py"
+    },
+    {
+      "source": "jobs/test_jobrec.py",
+      "destination": "deployment/bnl/jobs/test_jobrec.py"
+    },
+    {
+      "source": "jobs/test_license.py",
+      "destination": "deployment/bnl/jobs/test_license.py"
+    },
+    {
+      "source": "jobs/test_procscan.py",
+      "destination": "deployment/bnl/jobs/test_procscan.py"
+    },
+    {
+      "source": "jobs/test_progress.py",
+      "destination": "deployment/bnl/jobs/test_progress.py"
+    },
+    {
+      "source": "jobs/test_remote.py",
+      "destination": "deployment/bnl/jobs/test_remote.py"
+    },
+    {
+      "source": "jobs/test_harness_can_fail.py",
+      "destination": "deployment/bnl/jobs/test_harness_can_fail.py"
+    }
+  ],
+  "consumers": [
+    {
+      "repository": "spec2si-tsmc65",
+      "head": "d563d9ec033d71dfa0fcfe5fe493573851cbf142",
+      "files": [
+        {
+          "source": "jobs/__init__.py",
+          "destination": "deployment/bnl/jobs/__init__.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/__main__.py",
+          "destination": "deployment/bnl/jobs/__main__.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/cli.py",
+          "destination": "deployment/bnl/jobs/cli.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/hosts.py",
+          "destination": "deployment/bnl/jobs/hosts.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/procscan.py",
+          "destination": "deployment/bnl/jobs/procscan.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/remote.py",
+          "destination": "deployment/bnl/jobs/remote.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/jobrec.py",
+          "destination": "deployment/bnl/jobs/bin/jobrec.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/license.py",
+          "destination": "deployment/bnl/jobs/bin/license.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/progress.py",
+          "destination": "deployment/bnl/jobs/bin/progress.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/report.sh",
+          "destination": "deployment/bnl/jobs/bin/report.sh",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/runjob",
+          "destination": "deployment/bnl/jobs/bin/runjob",
+          "state": "different",
+          "difference": "CRLF checkout; identical after CRLF-to-LF normalization"
+        },
+        {
+          "source": "jobs/test_cli.py",
+          "destination": "deployment/bnl/jobs/test_cli.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_hosts.py",
+          "destination": "deployment/bnl/jobs/test_hosts.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_jobrec.py",
+          "destination": "deployment/bnl/jobs/test_jobrec.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_license.py",
+          "destination": "deployment/bnl/jobs/test_license.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_procscan.py",
+          "destination": "deployment/bnl/jobs/test_procscan.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_progress.py",
+          "destination": "deployment/bnl/jobs/test_progress.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_remote.py",
+          "destination": "deployment/bnl/jobs/test_remote.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_harness_can_fail.py",
+          "destination": "deployment/bnl/jobs/test_harness_can_fail.py",
+          "state": "identical"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-tsmc28",
+      "head": "81d8262c54a0bb06542ef7358d24c416af88ee2c",
+      "files": [
+        {
+          "source": "jobs/__init__.py",
+          "destination": "deployment/bnl/jobs/__init__.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/__main__.py",
+          "destination": "deployment/bnl/jobs/__main__.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/cli.py",
+          "destination": "deployment/bnl/jobs/cli.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/hosts.py",
+          "destination": "deployment/bnl/jobs/hosts.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/procscan.py",
+          "destination": "deployment/bnl/jobs/procscan.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/remote.py",
+          "destination": "deployment/bnl/jobs/remote.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/jobrec.py",
+          "destination": "deployment/bnl/jobs/bin/jobrec.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/license.py",
+          "destination": "deployment/bnl/jobs/bin/license.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/progress.py",
+          "destination": "deployment/bnl/jobs/bin/progress.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/report.sh",
+          "destination": "deployment/bnl/jobs/bin/report.sh",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/bin/runjob",
+          "destination": "deployment/bnl/jobs/bin/runjob",
+          "state": "different",
+          "difference": "CRLF checkout; identical after CRLF-to-LF normalization"
+        },
+        {
+          "source": "jobs/test_cli.py",
+          "destination": "deployment/bnl/jobs/test_cli.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_hosts.py",
+          "destination": "deployment/bnl/jobs/test_hosts.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_jobrec.py",
+          "destination": "deployment/bnl/jobs/test_jobrec.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_license.py",
+          "destination": "deployment/bnl/jobs/test_license.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_procscan.py",
+          "destination": "deployment/bnl/jobs/test_procscan.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_progress.py",
+          "destination": "deployment/bnl/jobs/test_progress.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_remote.py",
+          "destination": "deployment/bnl/jobs/test_remote.py",
+          "state": "identical"
+        },
+        {
+          "source": "jobs/test_harness_can_fail.py",
+          "destination": "deployment/bnl/jobs/test_harness_can_fail.py",
+          "state": "identical"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-xt011",
+      "head": "7bccadd38438dd056cb86a9aecad490624efecea",
+      "files": [
+        {
+          "source": "jobs/__init__.py",
+          "destination": "deployment/bnl/jobs/__init__.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/__main__.py",
+          "destination": "deployment/bnl/jobs/__main__.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/cli.py",
+          "destination": "deployment/bnl/jobs/cli.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/hosts.py",
+          "destination": "deployment/bnl/jobs/hosts.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/procscan.py",
+          "destination": "deployment/bnl/jobs/procscan.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/remote.py",
+          "destination": "deployment/bnl/jobs/remote.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/jobrec.py",
+          "destination": "deployment/bnl/jobs/bin/jobrec.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/license.py",
+          "destination": "deployment/bnl/jobs/bin/license.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/progress.py",
+          "destination": "deployment/bnl/jobs/bin/progress.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/report.sh",
+          "destination": "deployment/bnl/jobs/bin/report.sh",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/runjob",
+          "destination": "deployment/bnl/jobs/bin/runjob",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_cli.py",
+          "destination": "deployment/bnl/jobs/test_cli.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_hosts.py",
+          "destination": "deployment/bnl/jobs/test_hosts.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_jobrec.py",
+          "destination": "deployment/bnl/jobs/test_jobrec.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_license.py",
+          "destination": "deployment/bnl/jobs/test_license.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_procscan.py",
+          "destination": "deployment/bnl/jobs/test_procscan.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_progress.py",
+          "destination": "deployment/bnl/jobs/test_progress.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_remote.py",
+          "destination": "deployment/bnl/jobs/test_remote.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_harness_can_fail.py",
+          "destination": "deployment/bnl/jobs/test_harness_can_fail.py",
+          "state": "missing"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-sky130",
+      "head": "5c60969e418001399dac7b80ce64a43602082885",
+      "files": [
+        {
+          "source": "jobs/__init__.py",
+          "destination": "deployment/bnl/jobs/__init__.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/__main__.py",
+          "destination": "deployment/bnl/jobs/__main__.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/cli.py",
+          "destination": "deployment/bnl/jobs/cli.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/hosts.py",
+          "destination": "deployment/bnl/jobs/hosts.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/procscan.py",
+          "destination": "deployment/bnl/jobs/procscan.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/remote.py",
+          "destination": "deployment/bnl/jobs/remote.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/jobrec.py",
+          "destination": "deployment/bnl/jobs/bin/jobrec.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/license.py",
+          "destination": "deployment/bnl/jobs/bin/license.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/progress.py",
+          "destination": "deployment/bnl/jobs/bin/progress.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/report.sh",
+          "destination": "deployment/bnl/jobs/bin/report.sh",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/bin/runjob",
+          "destination": "deployment/bnl/jobs/bin/runjob",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_cli.py",
+          "destination": "deployment/bnl/jobs/test_cli.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_hosts.py",
+          "destination": "deployment/bnl/jobs/test_hosts.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_jobrec.py",
+          "destination": "deployment/bnl/jobs/test_jobrec.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_license.py",
+          "destination": "deployment/bnl/jobs/test_license.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_procscan.py",
+          "destination": "deployment/bnl/jobs/test_procscan.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_progress.py",
+          "destination": "deployment/bnl/jobs/test_progress.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_remote.py",
+          "destination": "deployment/bnl/jobs/test_remote.py",
+          "state": "missing"
+        },
+        {
+          "source": "jobs/test_harness_can_fail.py",
+          "destination": "deployment/bnl/jobs/test_harness_can_fail.py",
+          "state": "missing"
+        }
+      ]
+    }
+  ],
+  "audit_notes": [
+    "Consumer comparison uses working-tree bytes; no consumer files were changed.",
+    "Local refs were stale; origin/main was fetched for inspection, without merging or resetting local work.",
+    "Only jobs/ and its 19 distribution entries were restored; unrelated upstream changes remain outside this work."
+  ]
+}

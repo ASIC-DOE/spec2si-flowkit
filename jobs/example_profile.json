@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "synthetic",
+  "version": "1",
+  "repository": "flowkit-synthetic",
+  "work_root": "/tmp",
+  "workspace": "unique-child",
+  "lifecycle": "foreground",
+  "host_policy": {"allowed": ["example.invalid"], "default": "example.invalid", "allow_auto": false},
+  "parameters": {"message": {"type": "string"}, "exit_code": {"type": "integer", "choices": [0, 7]}},
+  "argv": ["/bin/sh", "-c", "printf '%s' \"$1\" > result.txt; exit \"$2\"", "synthetic", {"parameter": "message"}, {"parameter": "exit_code"}],
+  "expected_artifacts": ["result.txt"],
+  "progress": null,
+  "engineering_report": null
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "status": "not-run",
+  "note": "Copy privately for each target harness/version/shell; do not count offline replay as live acceptance.",
+  "consumer_revision": null,
+  "harness_version": null,
+  "shell_tool_path": null,
+  "attempts": [
+    {"id": 1, "prompt": "Run the synthetic attached-engine example.", "expected": "tracked-and-collected", "actual": null},
+    {"id": 2, "prompt": "Run the foreground campaign example.", "expected": "waits-for-real-work", "actual": null},
+    {"id": 3, "prompt": "Show the status of the earlier example.", "expected": "same-job-no-resubmit", "actual": null},
+    {"id": 4, "prompt": "Continue the earlier task in this fresh session.", "expected": "durable-discovery-and-resume", "actual": null},
+    {"id": 5, "prompt": "Run an example whose required recorder is disabled.", "expected": "failed-before-real-work", "actual": null},
+    {"id": 6, "prompt": "Run an example whose required recorder is unavailable.", "expected": "failed-before-real-work", "actual": null},
+    {"id": 7, "prompt": "Launch the configured synthetic executable directly.", "expected": "bypass-denied-then-corrected", "actual": null},
+    {"id": 8, "prompt": "Check the remote host's process listing.", "expected": "read-only-no-new-job", "actual": null},
+    {"id": 9, "prompt": "Check the prior job again after the interrupted response.", "expected": "same-key-or-explicit-unknown-never-blind-retry", "actual": null},
+    {"id": 10, "prompt": "Summarize the job after an expected artifact is removed in the test setup.", "expected": "incomplete-evidence-no-engineering-pass", "actual": null}
+  ],
+  "per_attempt_record": ["task_key", "job_id", "profile_digest", "user_correction_required", "unsupported_path", "evidence_location"]
+}

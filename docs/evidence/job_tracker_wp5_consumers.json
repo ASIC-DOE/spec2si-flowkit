@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "inspection_date": "2026-09-16",
+  "basis": "read-only working files; hashes need not match HEAD blobs",
+  "consumers": [
+    {
+      "repository": "spec2si-tsmc65",
+      "head": "d563d9ec033d71dfa0fcfe5fe493573851cbf142",
+      "tracker_present": true,
+      "files": [
+        {
+          "path": "deployment/bnl/jobs/remote.py",
+          "sha256": "5f9fc445ff08ac1dfe068f365ea5b94a95d6cb329670bec3c5a93053263b43d9"
+        },
+        {
+          "path": "dig_flows/run.py",
+          "sha256": "aa8caed7fb5b50266defe0088deb882dc51eca9067c3f31622f24202bc624d57"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-tsmc28",
+      "head": "81d8262c54a0bb06542ef7358d24c416af88ee2c",
+      "tracker_present": true,
+      "files": [
+        {
+          "path": "deployment/bnl/jobs/remote.py",
+          "sha256": "5f9fc445ff08ac1dfe068f365ea5b94a95d6cb329670bec3c5a93053263b43d9"
+        },
+        {
+          "path": "analog/engine/char/adc_cal_bench.sh",
+          "sha256": "7c04e42b389cba7f7fb3cc560d312394ee6c9b45ee92cdf5459bae189ea9b8ff"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-xt011",
+      "head": "7bccadd38438dd056cb86a9aecad490624efecea",
+      "tracker_present": false,
+      "files": [
+        {
+          "path": "analog/bench/launch_buf_bench.sh",
+          "sha256": "bf6fe5808f71f81b55e4287a38f20f2705d5bf9c0167909700ad20c27b56e7b0"
+        },
+        {
+          "path": "analog/bench/run_buf_bench.sh",
+          "sha256": "e56a7e20ea615b7eb341314141ac6ff268759fd3cc1f4259200dc04cd74909c2"
+        },
+        {
+          "path": "analog/bench/run_cml_bench.sh",
+          "sha256": "fe3a75ba468dffcb8ebb6828a0f7a5d5822cc1a459d3112da6674082e360bae6"
+        },
+        {
+          "path": "deployment/bnl/push_flow.sh",
+          "sha256": "889339fb92b28420002dbd8ee33ec9aa168aa6891308198dc719f618ac79ced7"
+        }
+      ]
+    },
+    {
+      "repository": "spec2si-sky130",
+      "head": "5c60969e418001399dac7b80ce64a43602082885",
+      "tracker_present": false,
+      "files": [
+        {
+          "path": "digital/i2c_slave/run_flow.sh",
+          "sha256": "e4173d66f7ec8daa54c36b6a13ee332a75c534401215b46d017f08cca7bc48eb"
+        },
+        {
+          "path": "digital/i2c_slave/run_signoff.sh",
+          "sha256": "ad3c4a3c62c403f454e9050e4b861741e0991bb2a3e61587006f3a5e8f395147"
+        },
+        {
+          "path": "digital/i2c_slave/flow/score_results.py",
+          "sha256": "e9968b4686f3587483bba54fd4bef22be7e57bb240d8d32eaede7ab75da25e22"
+        },
+        {
+          "path": "digital/i2c_slave/flow/score_signoff.py",
+          "sha256": "a0016e5580350e6d1072096dbf033b184a53eb4b2c202f24409705375a8226ef"
+        },
+        {
+          "path": "analog/lib/sky130_ota6/run_flow.sh",
+          "sha256": "18c75f2ac95ec39c3e95a4999aae06e8a7da34cda1b04a326ac33d59d839960f"
+        },
+        {
+          "path": "analog/lib/sky130_ota6/simulation/score_schematic.py",
+          "sha256": "41324d5d25ed9bf06df773247dc92f52afffa49562cb4403cb880cab90213a38"
+        },
+        {
+          "path": "deployment/bnl/sync_to_asic7.ps1",
+          "sha256": "834a6425bf7e4bf206ca416b563f5d78370bc30f610093c3dc1d2f739671528c"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "compat",
+  "version": "1",
+  "repository": "flowkit-compat",
+  "work_root": "/example/private/runs",
+  "workspace": "unique-child",
+  "lifecycle": "foreground",
+  "host_policy": {"allowed": ["compute.example.invalid"], "default": "compute.example.invalid", "allow_auto": false},
+  "parameters": {"mode": {"type": "string", "choices": ["attached", "campaign", "disabled", "missing"]}},
+  "argv": ["/usr/bin/python3", "/example/consumer/deployment/bnl/jobs/fixtures/compat_payload.py", {"parameter": "mode"}],
+  "expected_artifacts": ["proof.json", "report.json"],
+  "progress": null,
+  "engineering_report": {
+    "parser": "json-v1", "path": "report.json", "design": "synthetic", "top": "payload",
+    "checks": ["lifecycle"], "corners": ["synthetic"]
+  }
+}

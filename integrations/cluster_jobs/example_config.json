@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "roots": ["/example/repo", "C:/example/repo", "/mnt/c/example/repo"],
+  "hosts": ["compute.example.invalid"],
+  "entrypoint": "python3 -m jobs.workflow",
+  "receipt_dir": "/example/private/cluster-job-receipts",
+  "routes": [
+    {"name": "synthetic-digital", "executables": ["synthetic-eda", "digital/run.py"], "profile": "/example/private/digital.json"},
+    {"name": "synthetic-campaign", "executables": ["campaign/run.sh"], "profile": "/example/private/campaign.json"}
+  ]
+}

@@ -163,6 +163,40 @@ FILES = [
     ("drcloop/test_markers.py", "drcloop/test_markers.py"),
     ("drcloop/test_triage.py", "drcloop/test_triage.py"),
     ("drcloop/test_loop.py", "drcloop/test_loop.py"),
+    # Restored from upstream c5b8d6a / df45995: flowkit jobs/ is the
+    # canonical source; consumer paths deliberately differ. WP0 changes
+    # no consumer. See docs/job_tracker_wp0.md for provenance and limits.
+    ("jobs/__init__.py", "deployment/bnl/jobs/__init__.py"),
+    ("jobs/__main__.py", "deployment/bnl/jobs/__main__.py"),
+    ("jobs/cli.py", "deployment/bnl/jobs/cli.py"),
+    ("jobs/hosts.py", "deployment/bnl/jobs/hosts.py"),
+    ("jobs/procscan.py", "deployment/bnl/jobs/procscan.py"),
+    ("jobs/remote.py", "deployment/bnl/jobs/remote.py"),
+    ("jobs/workflow.py", "deployment/bnl/jobs/workflow.py"),
+    ("jobs/state.py", "deployment/bnl/jobs/state.py"),
+    ("jobs/adapter.py", "deployment/bnl/jobs/adapter.py"),
+    ("jobs/smoke.py", "deployment/bnl/jobs/smoke.py"),
+    ("jobs/fixtures/compat_payload.py", "deployment/bnl/jobs/fixtures/compat_payload.py"),
+    ("jobs/bin/jobrec.py", "deployment/bnl/jobs/bin/jobrec.py"),
+    ("jobs/bin/evidence.py", "deployment/bnl/jobs/bin/evidence.py"),
+    ("jobs/bin/license.py", "deployment/bnl/jobs/bin/license.py"),
+    ("jobs/bin/progress.py", "deployment/bnl/jobs/bin/progress.py"),
+    ("jobs/bin/report.sh", "deployment/bnl/jobs/bin/report.sh"),
+    ("jobs/bin/runjob", "deployment/bnl/jobs/bin/runjob"),
+    ("jobs/test_cli.py", "deployment/bnl/jobs/test_cli.py"),
+    ("jobs/test_hosts.py", "deployment/bnl/jobs/test_hosts.py"),
+    ("jobs/test_jobrec.py", "deployment/bnl/jobs/test_jobrec.py"),
+    ("jobs/test_license.py", "deployment/bnl/jobs/test_license.py"),
+    ("jobs/test_procscan.py", "deployment/bnl/jobs/test_procscan.py"),
+    ("jobs/test_progress.py", "deployment/bnl/jobs/test_progress.py"),
+    ("jobs/test_remote.py", "deployment/bnl/jobs/test_remote.py"),
+    ("jobs/test_harness_can_fail.py", "deployment/bnl/jobs/test_harness_can_fail.py"),
+    # Opt-in integration sources only. Vendoring does not activate hooks.
+    ("integrations/cluster_jobs/__init__.py", "integrations/cluster_jobs/__init__.py"),
+    ("integrations/cluster_jobs/hook.py", "integrations/cluster_jobs/hook.py"),
+    ("integrations/cluster_jobs/render.py", "integrations/cluster_jobs/render.py"),
+    ("integrations/cluster_jobs/instructions.md", "integrations/cluster_jobs/instructions.md"),
+    ("integrations/cluster_jobs/example_config.json", "integrations/cluster_jobs/example_config.json"),
 ]
 
 
