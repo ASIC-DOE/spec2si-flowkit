@@ -18,8 +18,8 @@ class JobsDistribution(unittest.TestCase):
         self.pairs = [p for p in sync.FILES if p[0].startswith("jobs/")]
 
     def test_upstream_mapping_is_complete_and_unique(self):
-        self.assertEqual(25, len(self.pairs))
-        self.assertEqual(25, len(set(dst for _, dst in self.pairs)))
+        self.assertEqual(26, len(self.pairs))
+        self.assertEqual(26, len(set(dst for _, dst in self.pairs)))
         for src, dst in self.pairs:
             self.assertEqual("deployment/bnl/" + src, dst)
             self.assertTrue(os.path.isfile(os.path.join(ROOT, src)), src)
@@ -39,7 +39,7 @@ class JobsDistribution(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="flowkit-jobs-") as dest:
             with mock.patch.object(sync, "FILES", self.pairs):
                 with mock.patch("builtins.print"):
-                    self.assertEqual(25, sync.vendor(dest))
+                    self.assertEqual(26, sync.vendor(dest))
                     self.assertEqual(0, sync.vendor(dest))
                 self.assertTrue(all(s == "ok" for _, s in sync.check(dest)))
                 changed = self.pairs[0][1]
@@ -50,7 +50,7 @@ class JobsDistribution(unittest.TestCase):
                 states = dict(sync.check(dest))
                 self.assertEqual("DRIFTED", states[changed])
                 self.assertEqual("MISSING", states[missing])
-                self.assertEqual(23, sum(s == "ok" for s in states.values()))
+                self.assertEqual(24, sum(s == "ok" for s in states.values()))
 
 
 if __name__ == "__main__":

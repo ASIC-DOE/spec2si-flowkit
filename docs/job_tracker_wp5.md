@@ -218,3 +218,31 @@ Shared additions discovered during migration:
 
 See the consumer's `docs/tracked_adc_migration.md` and
 `docs/howto/tracked_adc.md` for evidence, commands and pending acceptance gates.
+
+## XT011 and SKY130 deployment (2026-09-16)
+
+Both consumers now have the mapped jobs/hook package and process-local adapters.
+Reusable packaging, immutable snapshot staging, wrapper preflight, process-group
+cleanup and report identity live in `jobs/pilot.py`; common project-hook path setup
+lives in `integrations/cluster_jobs/project.py`. This adds one jobs mapping (26
+total) and one integration mapping (six total). Only explicit source-file lists
+are staged. Consumer disclosure callbacks run both before packaging and deployment.
+No active tsmc65 work, live source trees or OA libraries are modified.
+
+XT011's selected-cell buffer characterization checks the existing five-corner,
+three-load, two-frequency/two-leak-state coverage and the native linearity rule.
+The first real X1 job completed all 40 simulations; coverage passed, but native
+and normalized evidence both rejected the larger-load linear fits. An exit-zero
+result is correctly reported as engineering failure.
+
+SKY130's OTA schematic regression reuses its existing scorer, checks the metrics
+against the snapshotted specification, and passed all seven checks at TT/27 C.
+It does not extend that result to layout/PEX, digital flow or signoff. The existing
+SKY130 upload disclosure boundary also validates snapshot source-file lists.
+
+Both real jobs ran through Windows SSH, resumed under the same durable keys and
+collected tracker-stamped evidence. Local negative tests cover absent/contradictory
+reports, nonfinite data, wrong scope, incomplete sweeps/raw plots, changed snapshots
+and disclosure violations. Live harness trust/activation and ten ordinary-request
+behavioral acceptance remain separate gates. See each consumer's
+`docs/tracked_jobs.md` for commands, measured results, limits and rollback.

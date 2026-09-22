@@ -278,6 +278,7 @@ FILES = [
     ("jobs/workflow.py", "deployment/bnl/jobs/workflow.py"),
     ("jobs/state.py", "deployment/bnl/jobs/state.py"),
     ("jobs/adapter.py", "deployment/bnl/jobs/adapter.py"),
+    ("jobs/pilot.py", "deployment/bnl/jobs/pilot.py"),
     ("jobs/smoke.py", "deployment/bnl/jobs/smoke.py"),
     ("jobs/fixtures/compat_payload.py", "deployment/bnl/jobs/fixtures/compat_payload.py"),
     ("jobs/bin/jobrec.py", "deployment/bnl/jobs/bin/jobrec.py"),
@@ -297,6 +298,7 @@ FILES = [
     # Opt-in integration sources only. Vendoring does not activate hooks.
     ("integrations/cluster_jobs/__init__.py", "integrations/cluster_jobs/__init__.py"),
     ("integrations/cluster_jobs/hook.py", "integrations/cluster_jobs/hook.py"),
+    ("integrations/cluster_jobs/project.py", "integrations/cluster_jobs/project.py"),
     ("integrations/cluster_jobs/render.py", "integrations/cluster_jobs/render.py"),
     ("integrations/cluster_jobs/instructions.md", "integrations/cluster_jobs/instructions.md"),
     ("integrations/cluster_jobs/example_config.json", "integrations/cluster_jobs/example_config.json"),
