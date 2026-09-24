@@ -383,6 +383,11 @@ class Transport:
         KNOWN "absent" means no launch holds the key; anything else is not."""
         return self.read("request", key, **kw)
 
+    def signatures(self, jobid, **kw):
+        """Counts of fixed failure signatures (licence, crash, environment,
+        traceback, timeout, memory, disk) in a job's logs. Never log lines."""
+        return self.read("signatures", jobid, **kw)
+
     def evidence(self, contract, timeout=None):
         """Validate stamped report bytes remotely; return only bounded verdicts."""
         ensured = self.ensure_bin(timeout=timeout)

@@ -4,7 +4,7 @@ genre: overview
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-12
+updated: 2026-09-24
 summary: The vendored source of every port's `deployment/bnl/jobs/`: an ssh round trip that cannot be corrupted by quoting (a script over stdin, values bound through quoted heredocs), the host chooser, the licence-holding process scanner, the job CLI, and the bundle the cluster side runs. This page is only the map; the implementation plan and the incident record live with spec2si-tsmc65, which wrote it.
 -->
 
@@ -19,6 +19,10 @@ the `aj` CLI drives detached jobs with it.
 | `remote.py` | `Transport.run_sh(script)` — the script goes over stdin to `/bin/sh -s`, values are bound through quoted heredocs, nothing is interpolated into argv. Every result is `KNOWN`, `STALE` or `UNKNOWN`, never a guess |
 | `hosts.py` | which cluster host performs a read or runs a job, and why |
 | `procscan.py` | the licence-holding process scanner the browser's Interactions pane shows |
+| `workflow.py` | the durable tracked-job CLI: `start / status / resume / collect / tasks`, plus `report` and `failures` for failure reports |
+| `state.py` | the local task store: intent written before dispatch, the task id as the tracker's request key (a lost acknowledgement is resolved, never resubmitted) |
+| `failure.py` | structured failure reports: a `collect` that is not a verified pass writes `failure.json`/`failure.md` (contract, outcome, evidence, attempts, cause, the question for exploration) |
+| `pilot.py` | package, deploy and run a repo's adapter as an immutable cluster snapshot |
 | `cli.py` | `aj run / top / watch / wait / why / verify` |
 | `bin/` | what ships to the cluster once and runs there: `runjob`, `progress.py`, `jobrec.py`, `license.py`, `report.sh` |
 | `test_*.py` | run any of them directly; `test_harness_can_fail.py` is the negative control over the others |

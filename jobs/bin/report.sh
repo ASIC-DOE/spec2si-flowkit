@@ -26,6 +26,7 @@
 #   events [n]       last n terminal events from events.jsonl     -- Phase 3
 #   why <jobid>      diagnosis bundle: status + result + live ps  -- Phase 3
 #   request <key>    the job that owns a caller request key, or "absent"
+#   signatures <jobid>  counts of fixed failure signatures in the job's logs
 set -u
 
 SCHEMA=1
@@ -303,6 +304,54 @@ cmd_request() {
 		"$SCHEMA" "$(jstr "$_k")" "$(jstr "$_id")" "$_started"
 }
 
+# signatures <jobid>: how many lines of the job's own logs match each of a
+# FIXED set of failure classes (licence, crash, environment, traceback,
+# timeout, memory, disk). Counts only -- no line ever leaves the cluster
+# (NDA). Read: $JOBS/<jobid>/stdout.log and the *.log files under the job's
+# recorded cwd (its workspace), to depth 4, under 64 MB each.
+SIG_LICENSE='SPECTRE-209|[Ll]icen[cs]e.{0,60}(unavailable|denied|checkout|check out|not available|exhausted|expired)|FLEXnet|FLEXlm|Licensed number of users already reached|No such feature exists'
+SIG_CRASH='Segmentation fault|core dumped|SIGSEGV|Bus error|[Ii]nternal [Ee]rror|INTERNAL ERROR'
+SIG_ENV='command not found|toolchain not activated|cannot open shared object'
+SIG_TRACEBACK='Traceback \(most recent call last\)'
+SIG_TIMEOUT='wall-clock timeout|TimeoutExpired|[Tt]imed out after'
+SIG_MEMORY='Out of memory|MemoryError|Cannot allocate memory|std::bad_alloc'
+SIG_DISK='No space left on device|Disk quota exceeded'
+
+_sigcount() {
+	# $1 pattern; files: stdout.log + workspace logs. Sum of matching lines.
+	{
+		[ -f "$_log" ] && grep -h -c -E "$1" "$_log" 2>/dev/null
+		[ -n "$_ws" ] && find "$_ws" -maxdepth 4 -type f -name '*.log' -size -65536k \
+			-exec grep -h -c -E "$1" {} + 2>/dev/null
+	} | awk '{ s += $1 } END { printf "%d", s + 0 }'
+}
+
+cmd_signatures() {
+	_id="${1:-}"
+	[ -n "$_id" ] || fail_envelope "missing_jobid"
+	case "$_id" in
+		*[!A-Za-z0-9._-]*) fail_envelope "bad_jobid" ;;
+	esac
+	[ -d "$JOBS/$_id" ] || fail_envelope "job_not_found"
+	_log="$JOBS/$_id/stdout.log"
+	_ws=$(sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p' "$JOBS/$_id/meta.json" 2>/dev/null | head -n1)
+	case "$_ws" in
+		/*) [ -d "$_ws" ] || _ws="" ;;
+		*) _ws="" ;;
+	esac
+	# the cwd of a job launched from $HOME is not a workspace: do not scan it.
+	[ "$_ws" = "$HOME" ] && _ws=""
+	_nf=0
+	[ -f "$_log" ] && _nf=1
+	if [ -n "$_ws" ]; then
+		_nf=$((_nf + $(find "$_ws" -maxdepth 4 -type f -name '*.log' -size -65536k 2>/dev/null | wc -l)))
+	fi
+	printf '{"schema":%s,"kind":"signatures","jobid":"%s","files":%s,"license":%s,"crash":%s,"environment":%s,"traceback":%s,"timeout":%s,"memory":%s,"disk":%s}\n' \
+		"$SCHEMA" "$(jstr "$_id")" "$_nf" "$(_sigcount "$SIG_LICENSE")" "$(_sigcount "$SIG_CRASH")" \
+		"$(_sigcount "$SIG_ENV")" "$(_sigcount "$SIG_TRACEBACK")" "$(_sigcount "$SIG_TIMEOUT")" \
+		"$(_sigcount "$SIG_MEMORY")" "$(_sigcount "$SIG_DISK")"
+}
+
 sub="${1:-probe}"
 [ $# -gt 0 ] && shift
 case "$sub" in
@@ -313,5 +362,6 @@ case "$sub" in
 	why)    cmd_why "$@" ;;
 	verify) cmd_verify "$@" ;;
 	request) cmd_request "$@" ;;
+	signatures) cmd_signatures "$@" ;;
 	*)      fail_envelope "unknown_subcommand" ;;
 esac

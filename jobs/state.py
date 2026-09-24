@@ -22,6 +22,7 @@ import subprocess
 import tempfile
 import time
 
+from . import failure
 from .remote import bundle_manifest
 from .workflow import ContractError, digest, relative, require
 
@@ -269,11 +270,88 @@ class TaskStore:
         result["task_key"] = key
         result["state_path"] = os.path.join(self.path(key), "task.json")
         if collect:
-            result["evidence_summary"] += "\n[Task intent and job reference](task.json) · [Collection JSON](collection.json)\n"
+            links = "[Task intent and job reference](task.json) · [Collection JSON](collection.json)"
+            if failure.needs_report(result):
+                report = self.write_failure(workflow, record, result)
+                result["failure_report"] = os.path.join(self.path(key), "failure.md")
+                result["failure_cause"] = report["cause"]["current"]
+                links += " · [Failure report](failure.md)"
+            result["evidence_summary"] += "\n" + links + "\n"
             atomic_json(os.path.join(self.path(key), "collection.json"), result)
             atomic_text(os.path.join(self.path(key), "collection.md"), result["evidence_summary"])
             result["summary_path"] = os.path.join(self.path(key), "collection.md")
         return result
+
+    # -- failure reports (study §4.11): the handoff back to exploration --------
+
+    def write_failure(self, workflow, record, result):
+        path = os.path.join(self.path(record["task_key"]), "failure.json")
+        existing = self.load(path)
+        report = failure.build(record, result, self.related(record), workflow.profile["engineering_report"],
+                               existing)
+        self.save_failure(record["task_key"], report)
+        return report
+
+    def save_failure(self, key, report):
+        atomic_json(os.path.join(self.path(key), "failure.json"), report)
+        atomic_text(os.path.join(self.path(key), "failure.md"), failure.markdown(report))
+
+    @staticmethod
+    def load(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return None
+
+    def related(self, record):
+        """Earlier tasks for the same request (profile id and parameters)."""
+        out = []
+        ref = record["reference"]
+        for name in sorted(os.listdir(self.directory)):
+            other = self.load(os.path.join(self.directory, name, "task.json"))
+            if (not other or other.get("task_key") == record["task_key"]
+                    or other.get("profile_id") != record.get("profile_id")
+                    or (other.get("reference") or {}).get("request_sha256") != ref["request_sha256"]
+                    or (other.get("reference") or {}).get("repository") != ref["repository"]
+                    or other.get("created_at", 0) > record.get("created_at", 0)):
+                continue
+            seen = (self.load(os.path.join(self.directory, name, "collection.json"))
+                    or self.load(os.path.join(self.directory, name, "observation.json")) or {})
+            out.append(dict(task_key=other["task_key"], job_id=other["reference"].get("job_id"),
+                            observation=seen.get("observation"), engineering=seen.get("engineering")))
+        return out
+
+    def declare_failure(self, key, **declaration):
+        path = os.path.join(self.path(key), "failure.json")
+        report = self.load(path)
+        require(report is not None, "no failure report for this task-key; collect it first")
+        failure.declare(report, **declaration)
+        self.save_failure(key, report)
+        return dict(schema=1, kind="failure-report", task_key=key, cause=report["cause"]["current"],
+                    exploration=dict((k, report["exploration"][k]) for k in ("status", "contradicts", "question")),
+                    failure_report=os.path.join(self.path(key), "failure.md"))
+
+    def failures(self, workflow, include_closed=False):
+        """Failure reports of this repository, open ones by default: the intake
+        for the next exploration round."""
+        rows = []
+        for name in sorted(os.listdir(self.directory)):
+            report = self.load(os.path.join(self.directory, name, "failure.json"))
+            if (not report or report.get("contract", {}).get("repository") != workflow.profile["repository"]
+                    or (report["exploration"]["status"] == "closed" and not include_closed)):
+                continue
+            rows.append(dict(task_key=report["task_key"], cause=report["cause"]["current"],
+                             declared=bool(report["cause"]["declared"]),
+                             engineering=report["outcome"]["engineering"],
+                             failed_checks=report["outcome"]["failed_checks"],
+                             question=report["exploration"]["question"], status=report["exploration"]["status"],
+                             updated_at=report["updated_at"],
+                             failure_report=os.path.join(self.directory, name, "failure.md")))
+        rows.sort(key=lambda r: r["updated_at"], reverse=True)
+        return dict(schema=1, kind="failure-reports", reports=rows,
+                    notice="Each is the input to an exploration round: read it, then record the cause and the "
+                           "question with `report`, and close it when exploration has answered it.")
 
     def listing(self, workflow):
         entries = []

@@ -17,6 +17,14 @@ or dispatches under that key only if the tracker has none. `resume`/`status` loo
 the key up too but never dispatch. Never retry under a new key. Cached receipts are pointers, not
 current job status. If receipt capture fails, preserve the original tool result.
 
+A `collect` that is not a verified engineering pass also writes a **failure report**
+(`failure.md` beside the task; `failure_report` in the output). It is the handoff back
+to exploration (study §4.11): give the user its path with the failed checks. Record
+what you know with `report --task-key K`: `--cause gate-fail|tool-error|transport --by agent`
+for the mechanical causes only (the judgement causes are the user's), and
+`--question` for what the next exploration round must answer. `failures` lists the
+open reports.
+
 Use `collect` before reporting results. Report execution state, artifact evidence
 and engineering verdict separately. An exit-zero job or verified artifact hashes
 do not establish a design pass. Use collect's validated engineering verdict and

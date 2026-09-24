@@ -266,8 +266,21 @@ class Workflow:
     def observe(self, reference, collect=False, identity=None):
         result = self._observe(reference, collect, identity)
         if collect:
+            from . import failure
+            if failure.needs_report(result) and identifier(result.get("job_id")):
+                result["log_signatures"] = self.log_signatures(result["host"], result["job_id"])
             result["evidence_summary"] = evidence_summary(result)
         return result
+
+    SIGNATURES = ("files", "license", "crash", "environment", "traceback", "timeout", "memory", "disk")
+
+    def log_signatures(self, host, job_id):
+        """Counts of fixed failure signatures in a finished job's logs, or None."""
+        res = self.transport(host).signatures(job_id)
+        data = res.data or {}
+        if res.status != KNOWN or res.rc != 0 or data.get("kind") != "signatures" or data.get("jobid") != job_id:
+            return None
+        return {k: data[k] for k in self.SIGNATURES if type(data.get(k)) is int}
 
     def _observe(self, reference, collect=False, identity=None):
         ref = self.check_reference(reference)
@@ -335,7 +348,8 @@ class Workflow:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("start", "status", "resume", "collect", "tasks"))
+    parser.add_argument("operation", choices=("start", "status", "resume", "collect", "tasks", "report", "failures"),
+                        help="report: record judgement on a task's failure report; failures: list open ones")
     parser.add_argument("--profile", required=True, help="trusted private profile JSON path")
     parser.add_argument("--parameters", default="{}", help="JSON object; start only")
     parser.add_argument("--host", help="explicit allowed host; start only")
@@ -345,14 +359,37 @@ def main(argv=None):
     parser.add_argument("--task-key", help="stable logical request key; reuse after interruption")
     parser.add_argument("--repo", help="local Git checkout whose identity is recorded at start")
     parser.add_argument("--manifest", help="input manifest JSON; its digest is recorded at start")
+    parser.add_argument("--cause", help="report: a cause class (gate-fail, tool-error, transport, engine-defect, "
+                                        "stale-artifact, silent-pass, abandoned)")
+    parser.add_argument("--by", choices=("human", "agent"), help="report: who declares; an agent may declare "
+                                                                 "only gate-fail, tool-error or transport")
+    parser.add_argument("--note", help="report: one short line with the cause")
+    parser.add_argument("--contradicts", help="report: the decision or assumption the failure contradicts")
+    parser.add_argument("--question", help="report: the question for the next exploration round")
+    parser.add_argument("--close", help="report: exploration has answered it; say how")
+    parser.add_argument("--all", action="store_true", help="failures: include closed reports")
     args = parser.parse_args(argv)
     try:
         with open(args.profile, encoding="utf-8") as fh:
             workflow = Workflow(json.load(fh))
+        declaring = dict(cause=args.cause, by=args.by, note=args.note, contradicts=args.contradicts,
+                         question=args.question, close=args.close)
+        require(args.operation == "report" or not any(v is not None for v in declaring.values()),
+                "--cause/--by/--note/--contradicts/--question/--close are for report")
         if args.operation == "tasks":
             from .state import TaskStore
             require(args.state_dir is not None, "state-dir required")
             result = TaskStore(args.state_dir).listing(workflow)
+        elif args.operation == "failures":
+            from .state import TaskStore
+            require(args.state_dir is not None, "state-dir required")
+            result = TaskStore(args.state_dir).failures(workflow, include_closed=args.all)
+        elif args.operation == "report":
+            from .state import TaskStore
+            require(args.state_dir is not None and args.task_key is not None, "state-dir and task-key required")
+            require(any(v is not None for k, v in declaring.items() if k not in ("by", "note")),
+                    "report needs --cause, --contradicts, --question or --close")
+            result = TaskStore(args.state_dir).declare_failure(args.task_key, **declaring)
         elif (args.state_dir or args.task_key) and args.reference is None:
             from .state import TaskStore, bind_source
             require(args.state_dir is not None and args.task_key is not None, "state-dir and task-key required")

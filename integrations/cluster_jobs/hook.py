@@ -23,7 +23,10 @@ GUIDANCE = ("Use the configured jobs.workflow profile for supported compute requ
             "Report engineering pass/fail only from collect's validated engineering field; unchecked/invalid is not pass. "
             "Use ordinary transport for read-only diagnostics. Do not bypass a denial using another shell. "
             "In a one-shot or headless session, do not end on a background poll: wait in the foreground "
-            "within a stated bound, or return the task key with the status/collect commands.")
+            "within a stated bound, or return the task key with the status/collect commands. "
+            "A collect that is not a verified pass writes a failure report (failure_report): give the user its "
+            "path and failed checks; record what you know with report --task-key K [--cause gate-fail|tool-error|"
+            "transport --by agent] [--question ...]; judgement causes are the user's; failures lists open reports.")
 
 
 def load_config(path):
@@ -320,7 +323,8 @@ def handle(event, cfg):
         return context(kind, ("Workflow references captured: " + json.dumps(paths) if paths else
                               "No workflow reference captured; retain the original result. If launch acknowledgement is lost, repeat start with the same task-key to reconcile; never use a new key.") +
                        note +
-                       " Collect before reporting results. Use the validated engineering field and failed/missing checks; never infer pass from process exit or hashes.")
+                       " Collect before reporting results. Use the validated engineering field and failed/missing checks; never infer pass from process exit or hashes."
+                       " If collect wrote a failure_report, give the user its path.")
     if kind == "PreToolUse" and opaque:
         return context(kind, "Guard cannot inspect this script/stdin/inline-code payload. Use the configured workflow for compute; this path has advisory coverage only.")
     return {}  # No 'allow': never override another hook or permission policy.

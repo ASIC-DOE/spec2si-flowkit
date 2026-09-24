@@ -53,7 +53,9 @@ consumers. Evidence is in each repo's guide and in the status survey.
 
 **Done (third session):** duplicate-safe submission (§6.3), flowkit `37ce65e`;
 the §8 condition-A baseline ([agentic_baseline.md](agentic_baseline.md)); and the
-study's new §4.11 (exploration → implementation cycles, failure reports).
+study's new §4.11 (exploration → implementation cycles, failure reports); and
+structured failure reports for tracked jobs (`jobs/failure.py`: `collect` writes
+them, `report` records judgement, `failures` lists the open ones).
 Earlier in the session:
 The task id is the tracker's request key; see the
 [WP3 request-key section](job_tracker_wp3.md#tracker-side-request-key-2026-09-24).
@@ -67,20 +69,15 @@ study's §4.11: it implements a decided contract, and when it cannot meet the
 contract it stops with a **structured failure report** (contract and failed
 checks, evidence, attempts and budget, cause class, the question for the next
 exploration round). Build it so that the B-versus-C comparison in
-[the baseline](agentic_baseline.md) can be run on it.
+[the baseline](agentic_baseline.md) can be run on it. The report format exists:
+`jobs/failure.py` (built 2026-09-24); the worker should emit it, not a new one.
 
-### 2. Failure reports now, before the worker
-
-None of the 965 harvested attempts has a declared cause. A structured failure
-report for tracked jobs (from `collect`'s failed and missing checks plus a
-cause class) is useful to chat today and is the worker's output format later.
-
-### 3. Re-measure B in ordinary use (from 2026-10-09)
+### 2. Re-measure B in ordinary use (from 2026-10-09)
 
 Re-run `integrations/cluster_jobs/acceptance/baseline.py` on the two weeks after
 activation and compare with condition A (the baseline's "after" section).
 
-### 4. Report upkeep (status survey §3)
+### 3. Report upkeep (status survey §3)
 
 - Write a decisions-first summary.
 - Move the dated tool and vendor tables to an appendix.

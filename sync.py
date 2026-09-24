@@ -277,6 +277,7 @@ FILES = [
     ("jobs/remote.py", "deployment/bnl/jobs/remote.py"),
     ("jobs/workflow.py", "deployment/bnl/jobs/workflow.py"),
     ("jobs/state.py", "deployment/bnl/jobs/state.py"),
+    ("jobs/failure.py", "deployment/bnl/jobs/failure.py"),
     ("jobs/adapter.py", "deployment/bnl/jobs/adapter.py"),
     ("jobs/pilot.py", "deployment/bnl/jobs/pilot.py"),
     ("jobs/smoke.py", "deployment/bnl/jobs/smoke.py"),
