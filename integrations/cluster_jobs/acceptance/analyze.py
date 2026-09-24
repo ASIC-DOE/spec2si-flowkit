@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import re
+import sys
 
 
 def claude(path):
@@ -62,7 +63,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--launch-pattern", default=r"$^")
     a = ap.parse_args()
-    ids = sorted({f[:-6] for f in os.listdir(a.out) if f.endswith(".jsonl")}, key=lambda s: (len(s), s))
+    # Final answers carry ≥, µ, ° ...; a Windows console's cp1252 cannot encode them.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ids =sorted({f[:-6] for f in os.listdir(a.out) if f.endswith(".jsonl")}, key=lambda s: (len(s), s))
     for tid in ids:
         p = os.path.join(a.out, tid + ".jsonl")
         r = claude(p) if a.harness == "claude" else codex(p, os.path.join(a.out, tid + ".err"))

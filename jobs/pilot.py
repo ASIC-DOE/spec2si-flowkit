@@ -87,8 +87,11 @@ def package(adapter, repo, output):
     if output == repo or repo in output.parents:
         raise ValueError("package must be outside source checkout")
     paths = set(adapter.SPEC["files"] + ["deployment/bnl/tracked_job.py"])
+    # The vendored tests never run on the cluster. Packaging them bound every
+    # snapshot to them, so a test-only re-vendor made all deployed profiles stale.
     paths.update(p.relative_to(repo).as_posix() for p in (repo / "deployment/bnl/jobs").rglob("*")
-                 if p.is_file() and (p.suffix in (".py", ".sh") or p.name == "runjob"))
+                 if p.is_file() and (p.suffix in (".py", ".sh") or p.name == "runjob")
+                 and not p.name.startswith("test_"))
     if not all(relative(p) for p in paths):
         raise ValueError("invalid package paths")
     # The process owns disclosure policy; an upload must never bypass it.

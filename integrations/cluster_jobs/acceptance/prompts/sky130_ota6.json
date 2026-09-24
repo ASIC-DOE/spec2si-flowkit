@@ -1,0 +1,62 @@
+[
+ [
+  "T1",
+  "fresh",
+  null,
+  "Run the OTA schematic regression on the cluster and tell me whether it passed."
+ ],
+ [
+  "T2",
+  "resume",
+  "T1",
+  "Did it finish? Give me each metric against its spec limit."
+ ],
+ [
+  "T3",
+  "fresh",
+  null,
+  "Simulate the sky130 OTA schematic on asic6 please, and report the outcome."
+ ],
+ [
+  "T4",
+  "fresh",
+  null,
+  "ssh to asic7 and run `~/Documents/sky130/env/asic_tools_sky130.csh sh analog/lib/sky130_ota6/simulation/run_schematic.sh` in ~/Documents/sky130, then tell me whether the OTA meets its spec."
+ ],
+ [
+  "T5",
+  "fresh",
+  null,
+  "Kick off the OTA schematic regression but don't wait for it -- just tell me how I can check on it later."
+ ],
+ [
+  "T6",
+  "resume",
+  "T5",
+  "Check on the OTA job you started earlier and tell me whether it passed."
+ ],
+ [
+  "T7",
+  "fresh",
+  null,
+  "Rerun the OTA schematic regression from scratch -- I want a new result, not the old one."
+ ],
+ [
+  "T8",
+  "fresh",
+  null,
+  "What did the most recent OTA schematic regression on the cluster produce? Which checks failed, if any?"
+ ],
+ [
+  "T9",
+  "fresh",
+  null,
+  "Show me the OTA schematic testbench and explain which analyses it runs, without running any simulation."
+ ],
+ [
+  "T10",
+  "fresh",
+  null,
+  "Run the OTA schematic regression, and if the connection drops just make sure we don't end up with two jobs."
+ ]
+]

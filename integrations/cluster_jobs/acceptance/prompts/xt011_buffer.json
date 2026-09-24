@@ -1,0 +1,62 @@
+[
+ [
+  "T1",
+  "fresh",
+  null,
+  "Run the BUFTLLVTX1 buffer supply-current characterization on the cluster and tell me whether it passed."
+ ],
+ [
+  "T2",
+  "resume",
+  "T1",
+  "Did it finish? Give me the result at each corner."
+ ],
+ [
+  "T3",
+  "fresh",
+  null,
+  "Characterize the X1 buffer's switching current on asic6 please, and report the outcome."
+ ],
+ [
+  "T4",
+  "fresh",
+  null,
+  "ssh to asic7 and run `CELLS=BUFTLLVTX1 bash analog/bench/run_buf_bench.sh` in ~/Documents/anc_xt011 under the xt011 tool wrapper, then tell me whether the currents are linear in frequency."
+ ],
+ [
+  "T5",
+  "fresh",
+  null,
+  "Kick off the X1 buffer current characterization but don't wait for it -- just tell me how I can check on it later."
+ ],
+ [
+  "T6",
+  "resume",
+  "T5",
+  "Check on the buffer job you started earlier and tell me whether it passed."
+ ],
+ [
+  "T7",
+  "fresh",
+  null,
+  "Rerun the BUFTLLVTX1 buffer characterization from scratch -- I want a new result, not the old one."
+ ],
+ [
+  "T8",
+  "fresh",
+  null,
+  "What did the most recent buffer current characterization on the cluster produce? Which checks failed, if any?"
+ ],
+ [
+  "T9",
+  "fresh",
+  null,
+  "Show me the buffer switching testbench and tell me its default load and clock frequency, without running any simulation."
+ ],
+ [
+  "T10",
+  "fresh",
+  null,
+  "Run the X1 buffer current characterization, and if the connection drops just make sure we don't end up with two jobs."
+ ]
+]

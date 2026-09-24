@@ -28,6 +28,31 @@ class DeployOrderTests(unittest.TestCase):
             pilot.Transport = saved
 
 
+class PackageTests(unittest.TestCase):
+    def test_vendored_tests_are_not_packaged(self):
+        class Adapter:
+            SPEC = dict(files=["bench.sh"])
+            @staticmethod
+            def validate_upload(repo, paths):
+                pass
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            jobs = repo / "deployment/bnl/jobs"
+            (jobs / "bin").mkdir(parents=True)
+            for name in ("bench.sh", "deployment/bnl/tracked_job.py", "deployment/bnl/jobs/pilot.py",
+                         "deployment/bnl/jobs/test_pilot.py", "deployment/bnl/jobs/bin/runjob"):
+                (repo / name).write_text("x\n")
+            git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
+            pilot.package(Adapter, repo, Path(tmp) / "package")
+            files = json.loads((Path(tmp) / "package/source.json").read_text())["files"]
+            self.assertIn("deployment/bnl/jobs/pilot.py", files)
+            self.assertIn("deployment/bnl/jobs/bin/runjob", files)
+            self.assertNotIn("deployment/bnl/jobs/test_pilot.py", files)
+
+
 @unittest.skipUnless(os.name == "posix", "POSIX lifecycle")
 class PilotTests(unittest.TestCase):
     def test_timeout_reaps_tool_group(self):
