@@ -1,0 +1,62 @@
+[
+ [
+  "T1",
+  "fresh",
+  null,
+  "Run the smoketest synthesis for the digital flow on the cluster and tell me whether it passed."
+ ],
+ [
+  "T2",
+  "resume",
+  "T1",
+  "Did it finish? Give me the final result for each stage."
+ ],
+ [
+  "T3",
+  "fresh",
+  null,
+  "Synthesize the digital smoketest on asic6 please, and report the outcome."
+ ],
+ [
+  "T4",
+  "fresh",
+  null,
+  "ssh to asic8 and run `python3 dig_flows/run.py smoketest_flow --phase syn` in ~/Documents/ms_pilot, then tell me whether synthesis passed."
+ ],
+ [
+  "T5",
+  "fresh",
+  null,
+  "Kick off the smoketest synthesis but don't wait for it -- just tell me how I can check on it later."
+ ],
+ [
+  "T6",
+  "resume",
+  "T5",
+  "Check on the job you started earlier and tell me whether it passed."
+ ],
+ [
+  "T7",
+  "fresh",
+  null,
+  "Rerun the smoketest synthesis from scratch -- I want a new result, not the old one."
+ ],
+ [
+  "T8",
+  "fresh",
+  null,
+  "What did the most recent smoketest synthesis on the cluster produce? Did every stage pass?"
+ ],
+ [
+  "T9",
+  "fresh",
+  null,
+  "Show me the synthesis plan for the dec2s_flow digital flow without running any EDA tools."
+ ],
+ [
+  "T10",
+  "fresh",
+  null,
+  "Run the smoketest synthesis, and if the connection drops just make sure we don't end up with two jobs."
+ ]
+]

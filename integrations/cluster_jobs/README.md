@@ -1,5 +1,9 @@
 # WP2 harness defaults and bypass guard
 
+**Behavioral acceptance tooling:** `acceptance/run_trials.py` and `acceptance/analyze.py`
+run and summarize ordinary-request trials under Claude Code or Codex. See
+[the resume point](../../docs/agentic_workflow_resume.md).
+
 **WP4 update:** collection now validates the [normalized engineering report](../../docs/job_tracker_wp4.md).
 Hook guidance distinguishes pass/fail from invalid/unchecked; process exit or hashes
 alone still do not establish a pass. Older WP4 deferrals below describe the original WP2 boundary.

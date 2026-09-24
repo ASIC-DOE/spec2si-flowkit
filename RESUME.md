@@ -10,6 +10,11 @@ summary: Where routekit stands after the 2026-08-26 sessions and the exact next 
 
 # RESUME — the routekit workstream
 
+> **2026-09-24, the agentic-workflow plan:** start from
+> [`docs/agentic_workflow_resume.md`](docs/agentic_workflow_resume.md). The
+> tracked-job tracker is active and accepted in tsmc65 and tsmc28, under Claude
+> Code and Codex. The next action is the live gates in xt011 and sky130.
+
 > **2026-09-12, a different workstream:** the artifact browser (`browse/`)
 > and the cluster transport (`jobs/`, landing in each port's deployment area) are vendored
 > from here into all four ports (ADR-0004); the runlog takes the design

@@ -1,0 +1,62 @@
+[
+ [
+  "T1",
+  "fresh",
+  null,
+  "Run the bandgap DC operating-point check on the cluster and tell me whether it passed."
+ ],
+ [
+  "T2",
+  "resume",
+  "T1",
+  "Did it finish? Give me the result at each temperature."
+ ],
+ [
+  "T3",
+  "fresh",
+  null,
+  "Run the bandgap DC operating point on asic6 please, and report the outcome."
+ ],
+ [
+  "T4",
+  "fresh",
+  null,
+  "ssh to asic7 and run `python3 analog/engine/char/bandgap_dc.py --run` in ~/Documents/onr_t28, then tell me whether the predictions held."
+ ],
+ [
+  "T5",
+  "fresh",
+  null,
+  "Kick off the bandgap DC run but don't wait for it -- just tell me how I can check on it later."
+ ],
+ [
+  "T6",
+  "resume",
+  "T5",
+  "Check on the bandgap job you started earlier and tell me whether it passed."
+ ],
+ [
+  "T7",
+  "fresh",
+  null,
+  "Rerun the bandgap DC operating point from scratch -- I want a new result, not the old one."
+ ],
+ [
+  "T8",
+  "fresh",
+  null,
+  "What did the most recent bandgap DC run on the cluster produce? Which checks failed, if any?"
+ ],
+ [
+  "T9",
+  "fresh",
+  null,
+  "Show me the bandgap DC netlist deck for 27 C without running any simulation."
+ ],
+ [
+  "T10",
+  "fresh",
+  null,
+  "Run the bandgap DC check, and if the connection drops just make sure we don't end up with two jobs."
+ ]
+]
