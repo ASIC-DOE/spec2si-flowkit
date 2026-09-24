@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3), and condition A of §8 is measured; the §9.2 worker is built (2 of 10 attempts); next are diagnosis contracts and tracked-job gates. Includes the commands, paths, tooling and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3), and condition A of §8 is measured; the §9.2 worker is built with tracked gates and diagnosis contracts (3 of 10 attempts); next are more attempts. Includes the commands, paths, tooling and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -33,7 +33,7 @@ session (branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
 |---|---|---|---|
 | tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-009 on asic8, `.tracker-local/` |
-| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-008, ADC snapshot-20260924-07, both on asic7 |
+| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-009, ADC snapshot-20260924-07, both on asic7 |
 | xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260924-05 on asic7 |
 | sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260924-06 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
 
@@ -64,12 +64,12 @@ All five profiles were redeployed afterwards.
 
 ### 1. More worker attempts (study §9.2)
 
-The worker is built (`worker/`, see its README). Two reviewed attempts of ten
-are done, both maintenance. Next: diagnosis contracts whose input is a failure
-report (`jobs/failure.py`), and tracked cluster jobs as gates (package and
-deploy from the worktree, then start/collect under a request key). The
-tsmc28 bandgap tempco item below is a natural one. Then the B-versus-C
-comparison of the [baseline](agentic_baseline.md) on frozen tasks.
+The worker is built (`worker/`, see its README), with tracked cluster gates and
+diagnosis contracts. Three reviewed attempts of ten, all merged: two
+maintenance, one diagnosis with a licensed gate. Next: seven more, mixing
+kinds and harnesses (a Codex diagnosis; an xt011 or sky130 tracked gate; a
+task that should stop). Then the B-versus-C comparison of the
+[baseline](agentic_baseline.md) on frozen tasks.
 
 ### 2. Re-measure B in ordinary use (from 2026-10-09)
 
@@ -84,9 +84,8 @@ activation and compare with condition A (the baseline's "after" section).
 
 ### Smaller items found along the way
 
-- **Tempco missing from the bandgap JSON.** tsmc28's `bandgap_dc.json` is
-  written before the tempco is computed. Fix it in the bench; it is a packaged
-  file, so redeploy afterwards.
+- ~~Tempco missing from the bandgap JSON~~: diagnosed and fixed by worker pilot 3
+  (tsmc28 `2ef9455`), checked by a new `tempco-reported` check.
 - ~~Guard argument order~~: fixed by worker pilot 1 (`8b8305b`); tsmc65 now
   denies `run.py --phase syn smoketest_flow`.
 - **"Run it" can reuse a result.** A request to run the check sometimes

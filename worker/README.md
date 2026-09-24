@@ -58,6 +58,37 @@ contract (the decision) ─► preflight ─► round ─► scope check ─► 
 Every event is appended to `ledger.jsonl` in the run directory. The engineer
 reviews the branch and merges it, or not; the worker never does.
 
+### Tracked cluster gates
+
+A gate can be a tracked job instead of a local command:
+
+```json
+{"name": "cluster-bandgap", "acceptance": true, "timeout": 2400,
+ "tracked": {"adapter": "deployment/bnl/tracked_job.py", "snapshot_root": "/u/.../bandgap-dc",
+             "host": "asic7", "work_root": "/u/.../bandgap-dc/runs", "parameters": {"case": "tt"},
+             "state_dir": "C:/dev/.spec2si-job-state/tsmc28/tasks", "poll_seconds": 20}}
+```
+
+The controller packages the worktree's adapter and deploys it to a
+run-specific snapshot (`<snapshot_root>/worker-<run>-<label>`, no licence),
+starts the job through `jobs.workflow` with the worktree as the source and a
+stable task key (so a lost acknowledgement is reconciled, never resubmitted),
+and polls `collect` itself: the model spends no turns waiting. The gate passes
+only on a tracker-verified engineering pass. On a fail, the job's failure
+report is the gate output the next round reads. Every run counts against
+`budget.licensed_jobs`, and the contract must budget at least one run per
+tracked gate. The baseline run is one of them.
+
+### Diagnosis contracts
+
+`"kind": "diagnosis"` starts from a failure. The worker sees the contract's
+`failure_report` (a file) and the baseline failure reports of its tracked
+gates, and is told to find the cause from evidence, keeping observations apart
+from hypotheses. Besides patch and stop it may ask for **one experiment** per
+round: a tracked gate re-run with parameters it chooses. The controller runs it
+(licensed, budgeted) and gives the result to the next round. If the cause lies
+outside the editable paths or needs a decision, the worker stops and names it.
+
 ## Use
 
 ```bash
@@ -92,6 +123,7 @@ first; the worker implemented it.
 | 1 | `guard-argument-order`: a route's argument prefix may follow leading options | Claude Code | 1 | $0.53 | 0.7 min | **ready for review**, merged (`8b8305b`); a 10-line helper in `hook.py` |
 | 2a | `parameters-file`: `start --parameters-file` for PowerShell | Codex | 1 | (tokens only) | 1.0 min | **stopped** with a failure report: the prompt told Codex it could run only pytest, and its file reader crashed |
 | 2b | the same, prompt fixed | Codex | 1 | about 414k tokens | 3.3 min | **ready for review**, merged (`2c9d45c`) |
+| 3 | `bandgap-tempco` (tsmc28, **diagnosis**, tracked cluster gate) | Claude Code | 1 | $0.63 + 2 licensed runs | 3.5 min | **ready for review**, merged (tsmc28 `2ef9455`) |
 
 What the pilots showed:
 
@@ -105,13 +137,21 @@ What the pilots showed:
 - **Reviewing a small, gated diff is quick.** Both patches were minimal and
   touched only the editable file.
 
-Two reviewed attempts of the study's ten. Next: diagnosis contracts (a failure
-report as the input) and tracked cluster jobs as gates.
+- **Diagnosis from a failure report works when the report carries the pattern.**
+  Pilot 3's baseline cluster run failed `tempco-reported` at every corner while
+  the other nine checks passed. From that report and the bench's source the
+  worker found the cause (the JSON is written before the tempco is computed),
+  moved one block, and marked "it will pass on the cluster" as a hypothesis.
+  The controller's own licensed run then passed 12/12, and the result carries
+  20.5 ppm/°C, the value this morning's acceptance run had printed.
+
+Three reviewed attempts of the study's ten.
 
 ## Limits
 
-- One worker, one repository, one task at a time. Gates are local commands;
-  tracked cluster jobs as gates are not wired in yet.
+- One worker, one repository, one task at a time.
+- A tracked gate deploys a snapshot per evaluation; snapshots and profiles
+  stay in the run directory and on the cluster until removed.
 - The failure report's cause is derived only mechanically (`gate-fail` when the
   acceptance gates still fail after the rounds); every other stop is
   `unclassified` until the engineer judges it.
