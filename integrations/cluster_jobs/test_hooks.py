@@ -50,6 +50,27 @@ class HookTests(unittest.TestCase):
         self.assertIn("start --profile", reason)
         self.assertIn("--host", reason)
 
+    def test_configured_project_wrappers_are_transparent(self):
+        # Unconfigured, an activation wrapper hides the launch (the old behaviour).
+        self.assertIsNone(self.decision("asic_tools.csh synthetic-eda input"))
+        self.cfg["wrappers"] = ["asic_tools.csh", "remote_task.sh"]
+        for command in ("asic_tools.csh synthetic-eda input",
+                        "~/tools/asic_tools.csh python3 digital/run.py --top demo",
+                        "ssh compute.example.invalid 'cd w && ~/tools/asic_tools.csh synthetic-eda input'",
+                        "bash deployment/remote_task.sh job --put a.sh -- synthetic-eda input",
+                        "tcsh -c 'synthetic-eda input'", "csh -c 'synthetic-eda input'"):
+            with self.subTest(command=command):
+                self.assertEqual("deny", self.decision(command))
+        for command in ("asic_tools.csh which genus", "bash deployment/remote_task.sh job -- ls -la",
+                        "tcsh -c 'echo $PATH'"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.decision(command))
+        self.cfg["wrappers"] = "asic_tools.csh"
+        path = Path(self.tmp.name) / "bad.json"
+        path.write_text(json.dumps(self.cfg))
+        with self.assertRaises(ValueError):
+            load_config(str(path))
+
     def test_compute_subcommand_preserves_preparation_and_status(self):
         self.cfg["routes"][0]["argument_prefixes"] = [["run"], ["launch", "normal"]]
         for command in ("synthetic-eda run", "python3 digital/run.py run --snapshot p",

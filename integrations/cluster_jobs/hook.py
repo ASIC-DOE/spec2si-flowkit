@@ -26,7 +26,7 @@ def load_config(path):
     with open(path, encoding="utf-8") as fh:
         cfg = json.load(fh)
     required = {"schema", "roots", "hosts", "routes", "entrypoint", "receipt_dir"}
-    if (not required <= set(cfg) or set(cfg) - required - {"state_dir"}
+    if (not required <= set(cfg) or set(cfg) - required - {"state_dir", "wrappers"}
             or cfg["schema"] != 1):
         raise ValueError("invalid config schema")
     for key in ("roots", "hosts", "routes"):
@@ -38,6 +38,9 @@ def load_config(path):
         raise ValueError("invalid entrypoint/cache")
     if not os.path.isabs(cfg["receipt_dir"]):
         raise ValueError("receipt_dir must be absolute on the hook host")
+    if "wrappers" in cfg and (not isinstance(cfg["wrappers"], list)
+                              or not all(isinstance(x, str) and x for x in cfg["wrappers"])):
+        raise ValueError("wrappers must be a list of executable names")
     if "state_dir" in cfg and (not isinstance(cfg["state_dir"], str) or not os.path.isabs(cfg["state_dir"])):
         raise ValueError("state_dir must be absolute on the hook host")
     for route in cfg["routes"]:
@@ -138,6 +141,18 @@ def inspect_argv(args, cfg, depth):
         denied, workflow, _ = inspect_argv(rest, cfg, depth + 1)
         # Unrelated local background work is outside the compute route policy.
         return denied, workflow, not bool(denied)
+    if exe in cfg.get("wrappers", ()):
+        # A project's own launch wrapper (e.g. a tool-activation script that
+        # runs its argv): the command after `--` if there is one, else after
+        # leading options. Without this the wrapped launch is never inspected.
+        if "--" in rest:
+            rest = rest[rest.index("--") + 1:]
+        else:
+            while rest and (rest[0].startswith("-") or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", rest[0])):
+                rest = rest[1:]
+        if not rest:
+            return set(), False, True
+        return inspect_argv(rest, cfg, depth + 1)
     if exe in ("env", "exec", "command", "wsl"):
         # Supported wrappers: env KEY=VALUE cmd; wsl [-e|--exec] cmd.
         while rest and (rest[0] in ("-e", "--exec", "--") or
@@ -146,10 +161,10 @@ def inspect_argv(args, cfg, depth):
         if not rest or rest[0].startswith("-"):
             return set(), False, True
         return inspect_argv(rest, cfg, depth + 1)
-    if exe in ("bash", "sh", "pwsh", "powershell", "cmd"):
+    if exe in ("bash", "sh", "tcsh", "csh", "pwsh", "powershell", "cmd"):
         for i, value in enumerate(rest):
             if value.lower() in ("-c", "-lc", "-command", "/c"):
-                source = (rest[i + 1] if exe in ("sh", "bash") and i + 1 < len(rest)
+                source = (rest[i + 1] if exe in ("sh", "bash", "tcsh", "csh") and i + 1 < len(rest)
                           else " ".join(rest[i + 1:]))
                 return inspect_command(source, cfg, depth + 1)
         if rest and not rest[0].startswith("-"):
