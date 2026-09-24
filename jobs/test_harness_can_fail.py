@@ -11,15 +11,18 @@ green light that means nothing, and it had been on for months.
 
 This walks the repo and refuses a `test_*` function from which no
 AssertionError can escape -- directly, or through a helper defined in the same
-module. It is deliberately CONSERVATIVE: anything it cannot see through (an
-imported helper, a lambda, a call it does not recognise) counts as guarded, so
-it under-reports rather than crying wolf. That is the right bias for a gate
-whose failure mode would otherwise be "everyone learns to ignore it".
+module. A same-module helper it cannot resolve (a cycle, or nesting past six
+levels) counts as guarded. A call into ANOTHER module (`mod.fn()`) is not
+followed and counts as nothing: a test whose only failure path is an exception
+escaping imported code is flagged, and the answer is to state the check in the
+test -- `assert`, `raise`, or `pytest.raises`.
 
 It has no allowlist. When `test_browse.py`'s escape check turned up -- it
 asserts by `compile()`ing the server with SyntaxWarning promoted to an error --
 the answer was to teach the scanner that `compile` raises, not to name the
 test and move on. An exception list is how a gate stops meaning anything.
+`pytest.raises` was the same kind of blind spot, found 2026-09-24 in
+spec2si-sky130 where three tests that fail with DID NOT RAISE were flagged.
 
   python3 test_harness_can_fail.py     # or: pytest test_harness_can_fail.py
 """
@@ -28,9 +31,12 @@ import os
 import sys
 
 #: Calls that ARE the assertion. `compile` is here because promoting a warning
-#: to an error and compiling is a real check; the others are the usual
+#: to an error and compiling is a real check; `raises`, `warns` and
+#: `deprecated_call` are pytest's context managers, which fail the test when
+#: the expected exception or warning does not happen; the others are the usual
 #: explicit-failure spellings.
-RAISING_CALLS = frozenset(("fail", "skip", "xfail", "exit", "compile"))
+RAISING_CALLS = frozenset(("fail", "skip", "xfail", "exit", "compile",
+                           "raises", "warns", "deprecated_call"))
 
 SKIP_DIRS = frozenset((".git", "node_modules", "worktrees", "__pycache__",
                        ".venv", ".tox", "build", "dist"))
@@ -138,6 +144,33 @@ def test_the_gate_itself_catches_the_shape_it_was_written_for():
                  "    assert 1 == 1\n")
     got = unguarded(p)
     assert got == ["test_cannot_fail"], got
+
+
+def test_pytest_raises_is_a_check():
+    """`with pytest.raises(E):` fails the test with DID NOT RAISE, so a test
+    whose only check is that one is guarded -- in both spellings. The imported
+    call beside it is not followed, so without the context manager the same
+    body is still flagged."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix="harness_gate_")
+    p = os.path.join(d, "test_sample.py")
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("import pytest\n"
+                 "from pytest import raises\n"
+                 "import mod\n\n\n"
+                 "def test_attr_form():\n"
+                 "    with pytest.raises(KeyError):\n"
+                 "        mod.lookup('guess')\n\n\n"
+                 "def test_bare_form():\n"
+                 "    with raises(ValueError):\n"
+                 "        mod.solve(-1)\n\n\n"
+                 "def test_warns():\n"
+                 "    with pytest.warns(UserWarning):\n"
+                 "        mod.solve(0)\n\n\n"
+                 "def test_imported_call_only():\n"
+                 "    mod.lookup('guess')\n")
+    got = unguarded(p)
+    assert got == ["test_imported_call_only"], got
 
 
 def main():
