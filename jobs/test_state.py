@@ -1,4 +1,5 @@
 """Crash, concurrency and recovery tests for local durable task pointers."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from .remote import KNOWN, UNKNOWN, Result
-from .state import TaskStore, atomic_json, source_identity
+from .state import TaskStore, atomic_json, bind_source, source_identity
 from .workflow import Workflow, ContractError
 from .test_workflow import profile
 
@@ -197,6 +198,49 @@ print(json.dumps(TaskStore(sys.argv[1]).start(w, "request-one", json.loads(sys.a
         c = source_identity(str(repo))
         self.assertNotEqual(b["untracked_sha256"], c["untracked_sha256"])
         self.assertNotIn("private", json.dumps(c))
+
+    def test_packaged_files_bind_the_start_not_the_whole_checkout(self):
+        repo = self.root / "bind-repo"
+        (repo / "flow").mkdir(parents=True)
+        def git(*args):
+            subprocess.run(["git", "-C", str(repo)] + list(args), check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        git("init")
+        (repo / "flow/run.py").write_text("print('run')")
+        (repo / "log.jsonl").write_text("{}")
+        git("add", "flow/run.py", "log.jsonl")
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture")
+        packaged_identity = source_identity(str(repo))
+        manifest = dict(source=packaged_identity, files={}, external={},
+                        packaged={"flow/run.py": hashlib.sha256(b"print('run')").hexdigest()})
+        # Unrelated drift -- a rewritten tracked log, a new untracked file, a commit.
+        (repo / "log.jsonl").write_text("{} {}")
+        (repo / "notes.md").write_text("new")
+        git("add", "log.jsonl")
+        git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "drift")
+        self.assertNotEqual(source_identity(str(repo)), packaged_identity)
+        self.assertEqual(packaged_identity, bind_source(str(repo), manifest))
+        # A changed or missing packaged file refuses, naming it.
+        (repo / "flow/run.py").write_text("print('edited')")
+        with self.assertRaisesRegex(ContractError, "flow/run.py"):
+            bind_source(str(repo), manifest)
+        (repo / "flow/run.py").unlink()
+        with self.assertRaisesRegex(ContractError, "flow/run.py"):
+            bind_source(str(repo), manifest)
+        # An older manifest keeps the whole-checkout contract.
+        self.assertEqual(source_identity(str(repo)), bind_source(str(repo), dict(source=packaged_identity)))
+        # The CLI refuses before any task record exists.
+        (repo / "flow/run.py").write_text("print('edited')")
+        p = self.root / "profile.json"; p.write_text(json.dumps(profile()))
+        m = self.root / "manifest.json"; m.write_text(json.dumps(manifest))
+        state = self.root / "cli-state"
+        result = subprocess.run([sys.executable, "-B", "-m", "jobs.workflow", "start", "--profile", str(p),
+                                 "--state-dir", str(state), "--task-key", "bind-refused", "--repo", str(repo),
+                                 "--manifest", str(m), "--parameters", json.dumps({"case": "a"})],
+                                stdout=subprocess.PIPE, universal_newlines=True, timeout=30)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("declared source changed since packaging", result.stdout)
+        self.assertEqual([], list(state.rglob("task.json")) if state.exists() else [])
 
     def test_cli_requires_durability_and_can_list_across_processes(self):
         p = self.root / "profile.json"

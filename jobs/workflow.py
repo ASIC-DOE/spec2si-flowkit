@@ -299,7 +299,7 @@ def main(argv=None):
             require(args.state_dir is not None, "state-dir required")
             result = TaskStore(args.state_dir).listing(workflow)
         elif (args.state_dir or args.task_key) and args.reference is None:
-            from .state import TaskStore, source_identity
+            from .state import TaskStore, bind_source
             require(args.state_dir is not None and args.task_key is not None, "state-dir and task-key required")
             require(args.reference is None, "use task-key or reference, not both")
             store = TaskStore(args.state_dir)
@@ -309,7 +309,7 @@ def main(argv=None):
                 with open(args.manifest, encoding="utf-8") as fh:
                     manifest = json.load(fh)
                 result = store.start(workflow, args.task_key, json.loads(args.parameters),
-                                     source_identity(args.repo), digest(manifest), args.host,
+                                     bind_source(args.repo, manifest), digest(manifest), args.host,
                                      os.path.abspath(args.profile))
             else:
                 require(args.host is None and args.parameters == "{}" and args.repo is None
@@ -338,4 +338,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Run the PACKAGE's copy of this module, not this `__main__` copy. state.py
+    # raises the package's ContractError; this copy's class is a different
+    # object, so `isinstance` failed and every task-store refusal reached the
+    # caller as "cannot read/write workflow state".
+    import importlib
+    sys.exit(importlib.import_module(__spec__.name).main())

@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from .remote import bundle_manifest
-from .workflow import ContractError, digest, require
+from .workflow import ContractError, digest, relative, require
 
 
 def atomic_json(path, value):
@@ -80,6 +80,45 @@ def source_identity(repo):
         untracked.update(name + b"\0" + content.digest())
     return dict(root=repo, head=head, patch_sha256=hashlib.sha256(patch).hexdigest(),
                 untracked_sha256=untracked.hexdigest())
+
+
+def bind_source(repo, manifest):
+    """-> the source identity a durable start records for `manifest`.
+
+    A pilot manifest lists the files its snapshot was PACKAGED from
+    (`packaged`: repo path -> sha256). Those files are what the job runs, so
+    they are what binds it: each must still hash the same in this checkout,
+    or the start is refused HERE, before anything is dispatched. The job is
+    then stamped with the packaged identity, which is what the snapshot's own
+    payload checks. A commit or a session-log rewrite elsewhere in the
+    checkout no longer turns a valid start into a job the cluster refuses.
+
+    A manifest without `packaged` (staged before this existed) keeps the
+    original contract: the whole checkout's current identity.
+    """
+    current = source_identity(repo)
+    packaged = manifest.get("packaged")
+    if packaged is None:
+        return current
+    require(isinstance(packaged, dict) and packaged and isinstance(manifest.get("source"), dict),
+            "invalid packaged-source record")
+    changed = []
+    for path, want in sorted(packaged.items()):
+        require(relative(path), "invalid packaged path")
+        full = os.path.join(current["root"], path)
+        if os.path.islink(full) or not os.path.isfile(full):
+            changed.append(path)
+            continue
+        h = hashlib.sha256()
+        with open(full, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                h.update(chunk)
+        if h.hexdigest() != want:
+            changed.append(path)
+    require(not changed, "declared source changed since packaging (%s%s); package and deploy "
+            "again, or start from the packaged checkout"
+            % (", ".join(changed[:5]), ", ..." if len(changed) > 5 else ""))
+    return manifest["source"]
 
 
 class TaskStore:

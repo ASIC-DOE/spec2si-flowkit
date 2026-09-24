@@ -122,6 +122,7 @@ def stage(adapter, package_dir, snapshot):
         raise ValueError("adapter declaration differs")
     snapshot.mkdir(parents=True, exist_ok=False)
     files = dict(source["files"])
+    packaged = dict(files)                  # repo files only; remote inputs follow
     for p, expected in files.items():
         if not relative(p):
             raise ValueError("invalid source path")
@@ -134,7 +135,8 @@ def stage(adapter, package_dir, snapshot):
     # Probe imports/environment under the real process wrapper, without compute.
     external = adapter.preflight(snapshot)
     manifest = dict(schema=1, repository=adapter.SPEC["repository"], source=source["source"],
-                    adapter_sha256=digest(adapter.SPEC), files=files, external=external)
+                    adapter_sha256=digest(adapter.SPEC), files=files, packaged=packaged,
+                    external=external)
     verify(snapshot, manifest)
     write(snapshot / "manifest.json", manifest)
     return manifest
@@ -146,7 +148,7 @@ def profile(adapter, snapshot, host, work_root, mode):
         isolated_bundle=True, transport_mode=mode, work_root=work_root, workspace="unique-child",
         lifecycle="foreground", host_policy=dict(allowed=[host], default=host, allow_auto=False),
         parameters={"case": {"type": "string", "choices": s["cases"]}},
-        argv=["/usr/bin/python3", snapshot + "/deployment/bnl/tracked_job.py", "run", "--snapshot", snapshot,
+        argv=["/usr/bin/python3", "-B", snapshot + "/deployment/bnl/tracked_job.py", "run", "--snapshot", snapshot,
               "--case", {"parameter": "case"}], expected_artifacts=["native.json", "report.json"], progress=None,
         engineering_report=dict(parser="json-v1", path="report.json", design=s["design"], top=s["top"],
                                 checks=s["checks"], corners=s["corners"])))
@@ -157,8 +159,13 @@ def deploy(adapter, repo, package_dir, snapshot, host, work_root, output):
         raise ValueError("absolute POSIX remote paths required")
     package_dir = Path(package_dir).resolve()
     source = load(package_dir / "source.json")
-    if source["source"] != source_identity(str(repo)) or source["adapter_sha256"] != digest(adapter.SPEC):
+    if source["adapter_sha256"] != digest(adapter.SPEC):
         raise ValueError("checkout changed since packaging")
+    # The packaged files bind the deployment, not the whole checkout (see
+    # state.bind_source): an unrelated commit between package and deploy is fine.
+    for p, expected in source["files"].items():
+        if not relative(p) or not (Path(repo) / p).is_file() or sha(Path(repo) / p) != expected:
+            raise ValueError("checkout changed since packaging: " + p)
     paths = sorted(source["files"])
     adapter.validate_upload(Path(repo).resolve(), paths)
     for p in paths:
