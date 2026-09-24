@@ -90,10 +90,11 @@ It needs item 1 before it may retry anything.
   returns a matching earlier result rather than a new run (tsmc28 T1). Decide
   whether the guidance should prefer a fresh run.
 - **More tsmc65 flows.** Spectre/AMS campaigns are the obvious next migration.
-- **Another host: deploy or refuse?** Asked for asic6, sky130 sessions deployed a
-  new asic6 profile (tracked), while xt011 and tsmc28 sessions refused and asked.
-  The owner decides; then say it in the guides (or give profiles several hosts).
-  sky130 now has two extra asic6 profiles under `.tracker-local/`.
+- **Another host: decided (owner, 2026-09-24).** Deploying to any ASIC host is
+  allowed. Every guide has an "Another host" section (one directory per host,
+  `.tracker-local/<host>/`, redeploys archive into its `revisions/`), and every
+  AGENTS.md says to run on the named host without refusing or asking. The
+  tsmc28 ADC deploy now archives the profile it replaces, as `jobs.pilot` does.
 - **PowerShell over-quotes `--parameters`** (`'{\"case\":...}'`). The named
   refusal makes sessions fix it in one step; a `--parameters-file` or per-key
   flags would remove the trap.
@@ -103,8 +104,9 @@ It needs item 1 before it may retry anything.
 - **Durable state** (outside every checkout):
   `C:/dev/.spec2si-job-state/<repo>/{tasks,receipts}`.
   **Profiles:** `<repo>/.tracker-local/` (ignored). tsmc28 keeps bandgap under
-  `.tracker-local/bandgap/`; the ADC's earlier profile is under
-  `.tracker-local/adc-revisions/`.
+  `.tracker-local/bandgap/`; the ADC's earlier profiles are under
+  `.tracker-local/revisions/<digest>/adc-normal.json`. A profile for another
+  host lives in `<profile dir>/<host>/` (each guide's "Another host").
 - **To read an old task**, use its archived profile. `.tracker-local/revisions/<profile sha>/profile.json`
   is chosen by the task's `profile_sha256`. With the current profile, a
   status call answers "profile changed; reconcile explicitly".
