@@ -21,7 +21,7 @@ rather than the study. Each entry names the evidence it rests on.
 |---|---|---|
 | §9.1 shared package (WP0–WP5) | **Built** | `jobs/workflow.py`, `state.py`, `adapter.py`, `pilot.py`, `smoke.py`, `bin/evidence.py`; `integrations/cluster_jobs/`; [WP5](job_tracker_wp5.md) |
 | §9.1 consumer pilots | **Built** in 3 of 4: tsmc28 (ADC normal mode), xt011 (buffer characterization), sky130 (OTA schematic) | each consumer's `docs/tracked_jobs.md` / `docs/tracked_adc_migration.md`; xt011's first job correctly reported an engineering failure (5 of 15 fits linear) |
-| §9.1 tsmc65 | **Activated** 2026-09-24 for the digital smoketest synthesis (`f5145e4b`) | licensed job pass 5/5, and it agrees with the native report; tsmc65 `docs/tracked_jobs.md` |
+| §9.1 tsmc65 | **Activated** 2026-09-24 for the digital smoketest synthesis (`aa08c61f`) | licensed job pass 5/5, and it agrees with the native report; tsmc65 `docs/tracked_jobs.md` |
 | §9.1 operational gates | **Run in tsmc65** (Claude Code): canaries pass, a licensed job passes, and ten ordinary requests pass with two incomplete answers. Not run in tsmc28, xt011 or sky130; Codex not tested | tsmc65 `docs/tracked_jobs.md` |
 | §6.3 lost-response reconciliation | **Open** | `Transport.run` has no caller request key, so an ambiguous submission stops as `submission-unknown` |
 | §8 baseline and ablation (A–D) | **Not started** | no measurement of current chat; no B-versus-C comparison |
