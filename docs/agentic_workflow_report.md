@@ -4,7 +4,7 @@ genre: study
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-16
+updated: 2026-09-24
 summary: Task-by-task assessment of the incremental benefits of persistent agent workflows over tool-enabled chat, grounded in the spec2si repositories, with research evidence, tool options, evaluation criteria and concrete recommendations.
 -->
 
@@ -21,6 +21,8 @@ The baseline is a capable, tool-enabled chat session: an engineer discusses a pr
 The incremental opportunity is **persistent orchestration across sessions, tools, machines and waits**: explicit task state; automatic continuation when an EDA job finishes; bounded repair cycles; reusable acceptance criteria; consistent evidence capture; and isolated concurrent experiments. None of these makes the model intrinsically better at circuit design. They can make its work more continuous, reproducible and economical.
 
 **Recommendation: retain chat as the interface for intent, tradeoffs and novel diagnosis; introduce bounded autonomous workflows for repeated, objectively scored execution.** Start with failure triage/job continuation and cross-repository maintenance. Then pilot known-class DRC repair and constrained experiment campaigns. Keep topology exploration, specification ambiguity, first-time PDK interpretation and final signoff decisions closely supervised.
+
+The division follows the shape of the work itself (§4.11): each stage or abstraction level is an **exploration** round followed by an **implementation** round. Chat suits exploration; agentic flows suit implementation. A failed implementation must come back as a report, because that report is what starts the next exploration round.
 
 Three distinctions determine whether investment is justified:
 
@@ -193,6 +195,45 @@ An agent can propose a lesson or summarize signoff coverage; deterministic code 
 | Search-space/topology revision | Chat or bounded proposal | Concrete alternatives and validation plan |
 | Final acceptance and release | Deterministic gates + authorized review | Complete artifact-bound evidence bundle |
 
+### 4.11 The design flow is a sequence of exploration → implementation cycles
+
+*Added 2026-09-24 at the owner's direction.*
+
+A design does not proceed as one long task. It moves through stages or abstraction levels: specification, architecture and behavioural model, circuit or RTL, layout and assembly, extraction and signoff. **Each stage is an exploration round followed by an implementation round.**
+
+- **Exploration** is divergent: which topology, which partition, which tradeoff, what the specification really asks for, why a result disagrees with expectation. It needs judgment, fast what-ifs and changes of direction. **Interactive chat is the right tool.**
+- **Implementation** is convergent: a decided design is built and verified against a stated contract. It is long, repetitive, full of licensed-tool waits and objectively checkable. **Agentic flows are the right tool.**
+
+```mermaid
+flowchart LR
+    subgraph S1["Stage n (e.g. architecture)"]
+        E1["Explore<br/>(chat)"] -->|"decision and<br/>task contract"| I1["Implement<br/>(agentic flow)"]
+    end
+    subgraph S2["Stage n+1 (e.g. circuit, layout)"]
+        E2["Explore<br/>(chat)"] -->|"decision and<br/>task contract"| I2["Implement<br/>(agentic flow)"]
+    end
+    I1 -->|"verified artifacts"| E2
+    I1 -.->|"failure report"| E1
+    I2 -.->|"failure report"| E2
+    I2 -.->|"failure that invalidates<br/>an earlier decision"| E1
+```
+
+The two handoffs carry the whole relationship.
+
+- **Exploration → implementation: the task contract** (§6.1). It records the decision, the inputs, the acceptance gates, the budget and what to do on failure. Implementation must not reopen the decision; if it cannot meet the contract, it stops.
+- **Implementation → exploration: the failure report.** A failure is not only an error to retry. When implementation cannot meet its contract, that is usually the new information that starts another exploration round: at the same stage, or at an earlier one when the failure contradicts an upstream decision. A flow that retries silently, relaxes a gate or reports "done" without its checks destroys exactly the signal exploration needs.
+
+**Failure reports are therefore a first-class output of every agentic flow, not an error log.** Each one is structured and kept, and it contains:
+
+- the task contract and the checks that failed, with collected evidence (for tracked jobs, `collect`'s engineering verdict and failed or missing checks);
+- what was attempted and the budget spent;
+- a cause class from a fixed enumeration (as `browse/runlog.py` already defines), kept apart from the evidence;
+- the decision or assumption the failure contradicts, and the question it poses for the next exploration round.
+
+Two examples from this project show the pattern. xt011's buffer characterization reports engineering **fail** (5 of 15 fits linear): the flow worked, and the failure is an exploration question about the large-load current model, not a gate to loosen. tsmc65's v7 ADC closed layout and then measured 5.89 ENOB after extraction; the root-cause work that followed was exploration, and it was started by that implementation result. Today such failures are recorded only in prose: none of the 965 attempts in the four repos' session-log harvest has a declared terminal cause ([baseline](agentic_baseline.md)).
+
+The same cycle shapes the rest of this study. §4.10's division of labor is its steady state. §6.1's contract and §6.3's stopping rules define its two handoffs. §8 should measure the handoff back as well as task completion: how many exploration rounds implementation failures start, how long a failure takes to reach the engineer, and whether the report was enough to decide without reconstructing context.
+
 ## 5. What published evidence supports—and does not
 
 | Primary source | Reported evidence | Relevance and limit |
@@ -279,7 +320,7 @@ Record submission intent before dispatch. After a lost connection, reconcile a s
 
 Deterministically retry narrowly defined transient failures with capped backoff. Do not blindly retry unsupported rules or design failures. Suspend model activity during waits; wake on events or bounded polling. Cancellation must stop new submissions and report whether active jobs actually stopped.
 
-Stop on budget exhaustion, repeated candidate hashes, recurring failure/patch cycles, missing required evidence, regression or an out-of-scope dependency. Preserve the best **verified** candidate separately from the latest one. Escalate with the exact blocker and evidence, rather than another broad request to “fix the design.”
+Stop on budget exhaustion, repeated candidate hashes, recurring failure/patch cycles, missing required evidence, regression or an out-of-scope dependency. Preserve the best **verified** candidate separately from the latest one. Escalate with the exact blocker and evidence, rather than another broad request to “fix the design.” That escalation is the failure report of §4.11: it closes the implementation round and opens the next exploration round.
 
 ### 6.4 Acceptance must preserve engineering meaning
 
@@ -374,6 +415,7 @@ Keep model/harness versions, input state, budgets and permissible feedback fixed
 | Fixed-condition quality vector | Preserves PPA or analog margins rather than rewarding mere completion |
 | Recovery and duplicate-submission rate | Tests the value of persistent state under actual interruptions |
 | Engineer review/recovery effort | Detects work shifted from execution into harder auditing |
+| Failure reports and exploration rounds started (§4.11) | Whether implementation failures return as decision-ready reports rather than silent retries or prose |
 
 Suggested advancement criteria are zero observed false acceptances; all critical injected faults detected; no duplicate submission after restart; complete provenance for every accepted result; and at least 20% lower median human active time or avoidable licensed submissions versus **B**, without worse quality. These are proposed targets, not promised improvements. A small pilot with no observed escapes does not prove zero future risk.
 
@@ -431,7 +473,7 @@ python3 drcloop/test_loop.py
 2. Worker diagnoses a failed check or completed job and proposes a scoped patch or one discriminating experiment.
 3. Controller validates scope, invokes existing tools and waits without consuming model turns.
 4. On completion, independent checks decide whether to continue, prepare review or stop with a blocker.
-5. The engineer receives the tested diff, observations versus hypotheses, missing checks and cost.
+5. The engineer receives the tested diff, observations versus hypotheses, missing checks and cost; on failure, the structured failure report of §4.11, which opens the next exploration round.
 
 For core maintenance, edit flowkit first, vendor to isolated consumers and record the exact compatible revisions. Begin with ten reviewed attempts, then expand the paired B/C comparison. **Expected benefit:** fewer handoffs and more consistent coverage. **Do not claim:** superior design reasoning without evidence.
 

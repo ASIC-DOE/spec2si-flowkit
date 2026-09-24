@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3); next is the §8 baseline. Includes the commands, paths, tooling and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3), and condition A of §8 is measured; next is the §9.2 worker built around failure reports (§4.11). Includes the commands, paths, tooling and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -51,25 +51,36 @@ sky130 `docs/tracked_jobs.md`.
 persisted Codex hook trust. The §9.1 operational gates are now run in all four
 consumers. Evidence is in each repo's guide and in the status survey.
 
-**Done (third session):** duplicate-safe submission (§6.3), flowkit `37ce65e`.
+**Done (third session):** duplicate-safe submission (§6.3), flowkit `37ce65e`;
+the §8 condition-A baseline ([agentic_baseline.md](agentic_baseline.md)); and the
+study's new §4.11 (exploration → implementation cycles, failure reports).
+Earlier in the session:
 The task id is the tracker's request key; see the
 [WP3 request-key section](job_tracker_wp3.md#tracker-side-request-key-2026-09-24).
 All five profiles were redeployed afterwards.
 
-### 1. The §8 baseline and ablation
-
-Status-survey improvement 2: use the session-log harvest
-(`browse/runlog.py`, committed `analog/specs/runlog.jsonl` in each repo) to
-count raw `ssh`/`nohup`/wrapper compute launches before and after activation.
-That is condition A, and the untracked-launch rate the tracker cannot see.
-Then define the B-versus-C comparison on frozen tasks.
-
-### 2. The first bounded autonomous worker (study §9.2)
+### 1. The first bounded autonomous worker (study §9.2)
 
 Diagnosis and maintenance first, using the same adapters and a local ledger.
-Its retries can now rely on request keys (§6.3 is built).
+Its retries can now rely on request keys (§6.3 is built). Build it to the
+study's §4.11: it implements a decided contract, and when it cannot meet the
+contract it stops with a **structured failure report** (contract and failed
+checks, evidence, attempts and budget, cause class, the question for the next
+exploration round). Build it so that the B-versus-C comparison in
+[the baseline](agentic_baseline.md) can be run on it.
 
-### 3. Report upkeep (status survey §3)
+### 2. Failure reports now, before the worker
+
+None of the 965 harvested attempts has a declared cause. A structured failure
+report for tracked jobs (from `collect`'s failed and missing checks plus a
+cause class) is useful to chat today and is the worker's output format later.
+
+### 3. Re-measure B in ordinary use (from 2026-10-09)
+
+Re-run `integrations/cluster_jobs/acceptance/baseline.py` on the two weeks after
+activation and compare with condition A (the baseline's "after" section).
+
+### 4. Report upkeep (status survey §3)
 
 - Write a decisions-first summary.
 - Move the dated tool and vendor tables to an appendix.
