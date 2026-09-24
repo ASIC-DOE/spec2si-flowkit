@@ -19,6 +19,8 @@ def config(root, repository, executables, hosts=("asic7",), wrappers=(), prefixe
                 routes=[dict(name=repository, executables=executables, profile=profile),
                         dict(name=repository + "-payload", executables=["tracked_job.py"],
                              argument_prefixes=[["run"]], profile=profile)])
+    # References are recorded only for this repository (repo names are spec2si-*, ADR-0001).
+    cfg["repository"] = "spec2si-" + repository
     if wrappers:
         cfg["wrappers"] = list(wrappers)
     if prefixes:

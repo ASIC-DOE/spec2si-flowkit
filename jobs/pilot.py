@@ -157,6 +157,11 @@ def profile(adapter, snapshot, host, work_root, mode):
 def deploy(adapter, repo, package_dir, snapshot, host, work_root, output):
     if not absolute(snapshot) or not absolute(work_root):
         raise ValueError("absolute POSIX remote paths required")
+    mode = "winssh" if os.name == "nt" else "ssh"
+    # Validate the profile BEFORE anything is uploaded: a declaration the
+    # workflow will refuse (e.g. a corner that is not an identifier) used to
+    # leave a staged snapshot behind with no usable profile.
+    new_profile = profile(adapter, snapshot, host, work_root, mode)
     package_dir = Path(package_dir).resolve()
     source = load(package_dir / "source.json")
     if source["adapter_sha256"] != digest(adapter.SPEC):
@@ -196,7 +201,6 @@ else: m=pilot.stage(adapter,p,snapshot)
 Path(r['work_root']).mkdir(parents=True,exist_ok=True)
 print(json.dumps(dict(schema=1,manifest=m)))
 '''.replace("REQUEST", encoded)
-    mode = "winssh" if os.name == "nt" else "ssh"
     result = Transport(host=host, mode=mode, isolated_bundle=True, timeout=60).run_sh(
         "python3 - <<'PY'\n" + script + "\nPY\n", retry_enoent=False)
     if not result.ok:
@@ -210,7 +214,7 @@ print(json.dumps(dict(schema=1,manifest=m)))
         write(archive / "profile.json", old_profile)
         write(archive / "manifest.json", load(output / "manifest.json"))
     write(output / "manifest.json", result.data["manifest"])
-    write(output / "profile.json", profile(adapter, snapshot, host, work_root, mode))
+    write(output / "profile.json", new_profile)
     return dict(profile=str(output / "profile.json"), preflight="passed", licensed_tools_used=False)
 
 

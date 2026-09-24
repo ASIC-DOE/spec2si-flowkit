@@ -19,14 +19,16 @@ GUIDANCE = ("Use the configured jobs.workflow profile for supported compute requ
             "An unknown submission requires reconciliation, not retry. Collect before reporting results. "
             "Execution completion and tracker-verified artifacts are not an engineering pass; "
             "Report engineering pass/fail only from collect's validated engineering field; unchecked/invalid is not pass. "
-            "Use ordinary transport for read-only diagnostics. Do not bypass a denial using another shell.")
+            "Use ordinary transport for read-only diagnostics. Do not bypass a denial using another shell. "
+            "In a one-shot or headless session, do not end on a background poll: wait in the foreground "
+            "within a stated bound, or return the task key with the status/collect commands.")
 
 
 def load_config(path):
     with open(path, encoding="utf-8") as fh:
         cfg = json.load(fh)
     required = {"schema", "roots", "hosts", "routes", "entrypoint", "receipt_dir"}
-    if (not required <= set(cfg) or set(cfg) - required - {"state_dir", "wrappers"}
+    if (not required <= set(cfg) or set(cfg) - required - {"state_dir", "wrappers", "repository"}
             or cfg["schema"] != 1):
         raise ValueError("invalid config schema")
     for key in ("roots", "hosts", "routes"):
@@ -38,6 +40,8 @@ def load_config(path):
         raise ValueError("invalid entrypoint/cache")
     if not os.path.isabs(cfg["receipt_dir"]):
         raise ValueError("receipt_dir must be absolute on the hook host")
+    if "repository" in cfg and not (isinstance(cfg["repository"], str) and cfg["repository"]):
+        raise ValueError("repository must be a non-empty string")
     if "wrappers" in cfg and (not isinstance(cfg["wrappers"], list)
                               or not all(isinstance(x, str) and x for x in cfg["wrappers"])):
         raise ValueError("wrappers must be a list of executable names")
@@ -300,10 +304,20 @@ def handle(event, cfg):
         return {"hookSpecificOutput": {"hookEventName": kind, "permissionDecision": "deny",
                                        "permissionDecisionReason": reason}}
     if kind == "PostToolUse" and workflow:
-        found = list(envelopes(event.get("tool_response")))
-        paths = [save_receipt(event, cfg, e) for e in found if "reference" in e]
+        found = [e for e in envelopes(event.get("tool_response")) if "reference" in e]
+        # A session's hooks belong to ONE project. A reference from another
+        # repository is that project's to record; saving it here would put a
+        # job under the wrong project's receipts and resume context.
+        own = cfg.get("repository")
+        foreign = sorted({str((e.get("reference") or {}).get("repository")) for e in found
+                          if own and (e.get("reference") or {}).get("repository") != own})
+        paths = [save_receipt(event, cfg, e) for e in found
+                 if not own or (e.get("reference") or {}).get("repository") == own]
+        note = (" Not captured here (another repository's job; record it from that project): "
+                + ", ".join(foreign) + "." if foreign else "")
         return context(kind, ("Workflow references captured: " + json.dumps(paths) if paths else
                               "No workflow reference captured; retain the original result. If launch acknowledgement is lost, reconcile; do not resubmit.") +
+                       note +
                        " Collect before reporting results. Use the validated engineering field and failed/missing checks; never infer pass from process exit or hashes.")
     if kind == "PreToolUse" and opaque:
         return context(kind, "Guard cannot inspect this script/stdin/inline-code payload. Use the configured workflow for compute; this path has advisory coverage only.")

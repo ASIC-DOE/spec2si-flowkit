@@ -113,6 +113,25 @@ class HookTests(unittest.TestCase):
         return dict(schema=1, kind="workflow", task_id=task, host=ref["host"], job_id="job-1",
                     reference=ref, observation="submitted", evidence="unchecked", engineering="unchecked")
 
+    def test_foreign_repository_reference_is_not_captured(self):
+        self.cfg["repository"] = "spec2si-own"
+        envelope = self.envelope()                       # repository="synthetic"
+        result = handle(self.event("python3 -m jobs.workflow start --profile p", kind="PostToolUse",
+                                   tool_response={"stdout": json.dumps(envelope)}), self.cfg)
+        text = result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("No workflow reference captured", text)
+        self.assertIn("another repository", text)
+        self.assertEqual([], list(Path(self.tmp.name).rglob("task-*.json")))
+        envelope["reference"]["repository"] = "spec2si-own"
+        result = handle(self.event("python3 -m jobs.workflow start --profile p", kind="PostToolUse",
+                                   tool_response={"stdout": json.dumps(envelope)}), self.cfg)
+        self.assertIn("captured", result["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(1, len(list(Path(self.tmp.name).rglob("task-*.json"))))
+
+    def test_session_start_carries_the_one_shot_rule(self):
+        message = handle(self.event(kind="SessionStart", source="startup"), self.cfg)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("do not end on a background poll", message)
+
     def test_post_capture_resume_and_disclosure(self):
         envelope = self.envelope()
         envelope["raw_log"] = "DO_NOT_STORE"

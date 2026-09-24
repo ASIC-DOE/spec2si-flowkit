@@ -12,6 +12,22 @@ from .state import TaskStore
 from .workflow import Workflow
 
 
+class DeployOrderTests(unittest.TestCase):
+    def test_invalid_declaration_refused_before_any_upload(self):
+        class Adapter:
+            SPEC = dict(id="fixture", repository="fixture", design="d", top="t", cases=["a"],
+                        checks=["c"], corners=["-40"], files=[])
+        def no_transport(*args, **kwargs):
+            raise AssertionError("deploy reached the transport")
+        saved, pilot.Transport = pilot.Transport, no_transport
+        try:
+            with self.assertRaises(ValueError):
+                pilot.deploy(Adapter, "/nonexistent-repo", "/nonexistent-package",
+                             "/remote/snapshot", "h", "/remote/runs", "/nonexistent-output")
+        finally:
+            pilot.Transport = saved
+
+
 @unittest.skipUnless(os.name == "posix", "POSIX lifecycle")
 class PilotTests(unittest.TestCase):
     def test_timeout_reaps_tool_group(self):
