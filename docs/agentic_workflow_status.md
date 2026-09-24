@@ -22,7 +22,7 @@ rather than the study. Each entry names the evidence it rests on.
 | §9.1 shared package (WP0–WP5) | **Built** | `jobs/workflow.py`, `state.py`, `adapter.py`, `pilot.py`, `smoke.py`, `bin/evidence.py`; `integrations/cluster_jobs/`; [WP5](job_tracker_wp5.md) |
 | §9.1 consumer pilots | **Built** in 3 of 4: tsmc28 (ADC normal mode), xt011 (buffer characterization), sky130 (OTA schematic) | each consumer's `docs/tracked_jobs.md` / `docs/tracked_adc_migration.md`; xt011's first job correctly reported an engineering failure (5 of 15 fits linear) |
 | §9.1 tsmc65 | **Activated** 2026-09-24 for the digital smoketest synthesis (`aa08c61f`) | licensed job pass 5/5, and it agrees with the native report; tsmc65 `docs/tracked_jobs.md` |
-| §9.1 operational gates | **Run in tsmc65 and tsmc28** (Claude Code). tsmc65: licensed job passes, ten requests pass with two incomplete answers. tsmc28: the ADC licensed run passes 2/2 (about 1 h 53 min); a new short flow (bandgap DC) passes its gates and ten requests with one incomplete answer. Not run in xt011 or sky130; Codex not tested | tsmc65 `docs/tracked_jobs.md`; tsmc28 `docs/howto/tracked_bandgap.md`, `docs/tracked_adc_migration.md` |
+| §9.1 operational gates | **Run in tsmc65 and tsmc28** under Claude Code **and Codex**. tsmc65: licensed job passes, ten Claude requests pass (two incomplete). tsmc28: ADC licensed run passes 2/2; the short bandgap flow passes ten Claude requests (one incomplete) and ten Codex requests (none incomplete; a real license exhaustion was classified correctly). Not run in xt011 or sky130 | tsmc65 `docs/tracked_jobs.md`; tsmc28 `docs/howto/tracked_bandgap.md`, `docs/tracked_adc_migration.md` |
 | §6.3 lost-response reconciliation | **Open** | `Transport.run` has no caller request key, so an ambiguous submission stops as `submission-unknown` |
 | §8 baseline and ablation (A–D) | **Not started** | no measurement of current chat; no B-versus-C comparison |
 | §9.2 bounded autonomous worker | **Not started** | no controller or ledger in any repo |
@@ -43,6 +43,13 @@ rather than the study. Each entry names the evidence it rests on.
   into the snapshot.
 - **The hook sees through configured launch wrappers and `tcsh -c`**
   (`64e0946`). A project also sets its hosts and argument prefixes.
+- **From the acceptance runs** (`e6d2f6d`, `7d71074`):
+  - The one-shot rule ("don't end on a background poll") is now part of the
+    SessionStart guidance.
+  - Receipts are kept only for the session's own repository.
+  - `pilot.deploy` validates the profile before uploading anything.
+  - A mangled `--parameters` value is a named refusal, not "cannot read/write
+    workflow state".
 
 ## 2. Where each checkout stood (2026-09-24)
 
