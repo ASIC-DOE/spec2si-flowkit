@@ -22,7 +22,8 @@ rather than the study. Each entry names the evidence it rests on.
 | §9.1 shared package (WP0–WP5) | **Built** | `jobs/workflow.py`, `state.py`, `adapter.py`, `pilot.py`, `smoke.py`, `bin/evidence.py`; `integrations/cluster_jobs/`; [WP5](job_tracker_wp5.md) |
 | §9.1 consumer pilots | **Built** in 3 of 4: tsmc28 (ADC normal mode), xt011 (buffer characterization), sky130 (OTA schematic) | each consumer's `docs/tracked_jobs.md` / `docs/tracked_adc_migration.md`; xt011's first job correctly reported an engineering failure (5 of 15 fits linear) |
 | §9.1 tsmc65 | **Activated** 2026-09-24 for the digital smoketest synthesis (`aa08c61f`) | licensed job pass 5/5, and it agrees with the native report; tsmc65 `docs/tracked_jobs.md` |
-| §9.1 operational gates | **Run in tsmc65 and tsmc28** under Claude Code **and Codex**. tsmc65: licensed job passes, ten Claude requests pass (two incomplete). tsmc28: ADC licensed run passes 2/2; the short bandgap flow passes ten Claude requests (one incomplete) and ten Codex requests (none incomplete; a real license exhaustion was classified correctly). Not run in xt011 or sky130 | tsmc65 `docs/tracked_jobs.md`; tsmc28 `docs/howto/tracked_bandgap.md`, `docs/tracked_adc_migration.md` |
+| §9.1 operational gates | **Run in all four consumers** under Claude Code **and Codex**. tsmc65: licensed job passes, ten Claude requests pass (two incomplete). tsmc28: ADC licensed run passes 2/2; the short bandgap flow passes ten Claude requests (one incomplete) and ten Codex requests (none incomplete; a real license exhaustion was classified correctly). **xt011** (X1 buffer, under a minute) and **sky130** (OTA schematic, seconds): cluster canary, licensed job with an independent re-measurement from the raw waveforms, harness canaries, and ten requests under each harness, **none incomplete**; tasks map one to one to jobs (10/10 and 13/13) | tsmc65 `docs/tracked_jobs.md`; tsmc28 `docs/howto/tracked_bandgap.md`, `docs/tracked_adc_migration.md`; xt011 and sky130 `docs/tracked_jobs.md` |
+| Codex hook trust | **Persisted** in all four consumers (owner, `/hooks`, 2026-09-24); a canary **without** the bypass flag passes in each | `~/.codex/config.toml` `[hooks.state]`: one entry per `hooks.json` handler, keyed by the handler definition's hash, so editing `hooks.json` needs `/hooks` again |
 | §6.3 lost-response reconciliation | **Open** | `Transport.run` has no caller request key, so an ambiguous submission stops as `submission-unknown` |
 | §8 baseline and ablation (A–D) | **Not started** | no measurement of current chat; no B-versus-C comparison |
 | §9.2 bounded autonomous worker | **Not started** | no controller or ledger in any repo |
@@ -49,7 +50,14 @@ rather than the study. Each entry names the evidence it rests on.
   - Receipts are kept only for the session's own repository.
   - `pilot.deploy` validates the profile before uploading anything.
   - A mangled `--parameters` value is a named refusal, not "cannot read/write
-    workflow state".
+    workflow state". In the xt011 trials two sessions hit it and corrected it
+    on the next call without reading any code.
+- **From the xt011 and sky130 gates** (`149ea4f`): the vendored `test_*.py`
+  files are no longer packaged. A test-only re-vendor (`dd5a79e`) had made
+  every deployed snapshot stale, and one trial session had to redeploy
+  mid-acceptance. The consumers' hook shims now pass every ASIC host and their
+  tool wrappers, and their preflights require `CDS_LIC_FILE` and `spectre`
+  inside the wrapper.
 
 ## 2. Where each checkout stood (2026-09-24)
 

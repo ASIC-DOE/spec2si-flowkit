@@ -17,7 +17,11 @@ Harnesses:
           %LOCALAPPDATA%/OpenAI/Codex/bin/<hash>/ (it is not on PATH). Project hook
           trust is bypassed PER INVOCATION (--dangerously-bypass-hook-trust):
           these are the repo's own reviewed hooks and nothing is persisted. For
-          everyday use the owner trusts them once with /hooks.
+          everyday use the owner trusts them once with /hooks; then
+          --hook-trust persisted runs without the bypass. Trust is saved in
+          ~/.codex/config.toml per hooks.json entry and keyed by the handler
+          definition's hash, so editing hooks.json needs /hooks again (editing
+          the script it runs does not).
 Both run with enough access for ssh. They launch REAL licensed jobs when a
 request asks for one, so choose a short tracked flow (the ADC pilot is an hour
 of Spectre; tsmc28's bandgap DC is a minute).
@@ -37,7 +41,7 @@ def codex_exe():
     return sorted(found, key=os.path.getmtime)[-1] if found else shutil.which("codex")
 
 
-def run(harness, repo, trials, out, timeout):
+def run(harness, repo, trials, out, timeout, hook_trust="bypass"):
     os.makedirs(out, exist_ok=True)
     state_path = os.path.join(out, "sessions.json")
     sessions = json.load(open(state_path)) if os.path.exists(state_path) else {}
@@ -51,7 +55,9 @@ def run(harness, repo, trials, out, timeout):
             stdin = None
             sessions[tid] = sid
         else:
-            common = ["--json", "--dangerously-bypass-hook-trust", "-s", "danger-full-access", "--skip-git-repo-check"]
+            common = ["--json", "-s", "danger-full-access", "--skip-git-repo-check"]
+            if hook_trust == "bypass":
+                common.insert(1, "--dangerously-bypass-hook-trust")
             cmd = [codex_exe(), "exec", "-C", repo] + common + (
                 ["-"] if mode == "fresh" else ["resume", sessions[parent], "-"])
             stdin = prompt.encode("utf-8")
@@ -84,9 +90,11 @@ def main():
     ap.add_argument("--out", required=True, help="private directory outside the checkout")
     ap.add_argument("--only", nargs="*", help="run just these trial ids")
     ap.add_argument("--timeout", type=int, default=1800)
+    ap.add_argument("--hook-trust", choices=("bypass", "persisted"), default="bypass",
+                    help="codex: 'persisted' omits the bypass flag, so only hooks trusted with /hooks run")
     a = ap.parse_args()
     trials = [t for t in json.load(open(a.prompts, encoding="utf-8")) if not a.only or t[0] in a.only]
-    run(a.harness, os.path.abspath(a.repo), trials, os.path.abspath(a.out), a.timeout)
+    run(a.harness, os.path.abspath(a.repo), trials, os.path.abspath(a.out), a.timeout, a.hook_trust)
 
 
 if __name__ == "__main__":

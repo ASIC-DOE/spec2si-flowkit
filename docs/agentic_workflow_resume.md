@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in tsmc65 and tsmc28 (Claude Code and Codex); xt011 and sky130 are next. Includes the commands, paths, tooling and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted; next is duplicate-safe submission (§6.3). Includes the commands, paths, tooling and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -27,16 +27,19 @@ for r in flowkit tsmc65 tsmc28 xt011 sky130; do cd /c/dev/spec2si-$r; git fetch 
 python sync.py --check-all      # from flowkit; routekit / apiref / housekeeping drift is known and not ours
 ```
 
-All five repos were pushed and in sync at the end of the session: flowkit
-`69e0366`+, tsmc65 `f9138b6e`, tsmc28 `a463c6d`, xt011 `5cb002f` (branch
-`cml-pin-escape`), sky130 `f6af65b` (branch `snn-readout`).
+All five repos were pushed and in sync at the end of the second 2026-09-24
+session (branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
 
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
 |---|---|---|---|
-| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-005 on asic8, `.tracker-local/` |
-| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-004, ADC snapshot-20260924-02, both on asic7 |
-| xt011 | buffer characterization (`run_buf_bench.sh` via `tracked_job.py`) | **not run** | stale: the job code changed since 2026-09-22 |
-| sky130 | OTA schematic regression | **not run** | stale: as xt011 |
+| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-006 on asic8, `.tracker-local/` |
+| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-005, ADC snapshot-20260924-03, both on asic7 |
+| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260924-02 on asic7 |
+| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260924-03 on asic7 (plus two asic6 profiles the trial sessions deployed) |
+
+Codex hook trust is **persisted** in all four consumers, and a canary without
+the bypass flag passes in each. Profiles were all redeployed after flowkit
+`149ea4f`; from now on a change to a vendored test does not make them stale.
 
 Evidence lives in each repo's guide: tsmc65 `docs/tracked_jobs.md`; tsmc28
 `docs/howto/tracked_bandgap.md` and `docs/tracked_adc_migration.md`; xt011 and
@@ -44,40 +47,11 @@ sky130 `docs/tracked_jobs.md`.
 
 ## Next actions, in order
 
-### 1. xt011 and sky130: run the live gates (the plan's §9.1, operational)
+**Done (second 2026-09-24 session):** the xt011 and sky130 live gates, and
+persisted Codex hook trust. The §9.1 operational gates are now run in all four
+consumers. Evidence is in each repo's guide and in the status survey.
 
-Do each repo the way tsmc65 and tsmc28 were done.
-
-1. **Bring the hook shim up to date.** `deployment/bnl/tracker_hook.py` calls
-   `project.main` with its defaults, which cover only asic7 and no wrappers.
-   Pass `hosts=` (asic1..10, asicdesign, pmos, plus FQDNs) and `wrappers=`
-   (the repo's activation wrapper, e.g. `asic_tools_xt011.csh` or
-   `asic_tools_sky130.csh`, plus `remote_task.sh`), as tsmc65 does.
-2. **Package and deploy a new snapshot.** The job code changed (`workflow.py`,
-   `pilot.py`), so the old snapshot's `start` will be refused, correctly and by
-   file name. `deploy` is the cluster canary; it uses no license.
-3. **Run the harness canaries.** In a fresh `claude -p` session and a
-   `codex exec` session: a marker plus the legacy launch must be denied before
-   the marker exists; read-only ssh must run; a workflow status call must be
-   captured; a resumed session must get its reference back.
-4. **Run one licensed job, and compare it independently** with the native
-   output: xt011's `native.json` and bench logs; sky130's scorer JSON.
-5. **Run the ten ordinary requests under both harnesses** with
-   `integrations/cluster_jobs/acceptance/` (below). Pick a **short** case: time
-   one run first. xt011's X1 buffer runs 40 simulations; sky130's OTA
-   schematic is a single TT point.
-6. **Verify and record.** Tasks must map one to one to cluster jobs
-   (`jobs.workflow tasks` against `ls ~/.asicjobs`). Collect anything left
-   uncollected. Record the results in the repo's guide and in the status survey.
-
-### 2. Codex hook trust (the owner's action)
-
-The Codex runs used `--dangerously-bypass-hook-trust` per invocation. For
-everyday use, the owner trusts the project hooks once per repo with `/hooks`
-in a Codex session. Then re-run one Codex canary **without** the bypass flag
-to confirm that persisted trust works.
-
-### 3. Duplicate-safe submission (study §6.3; still open)
+### 1. Duplicate-safe submission (study §6.3; still open)
 
 `Transport.run` has no caller request key, so a lost acknowledgement ends as
 `submission-unknown` and stops. Design a request key that is persisted
@@ -85,7 +59,7 @@ atomically before launch and resolved on the tracker side. Test both crash
 points on either side of dispatch, and two concurrent starts. Flowkit only;
 then vendor.
 
-### 4. The §8 baseline and ablation
+### 2. The §8 baseline and ablation
 
 Status-survey improvement 2: use the session-log harvest
 (`browse/runlog.py`, committed `analog/specs/runlog.jsonl` in each repo) to
@@ -93,12 +67,12 @@ count raw `ssh`/`nohup`/wrapper compute launches before and after activation.
 That is condition A, and the untracked-launch rate the tracker cannot see.
 Then define the B-versus-C comparison on frozen tasks.
 
-### 5. The first bounded autonomous worker (study §9.2)
+### 3. The first bounded autonomous worker (study §9.2)
 
 Diagnosis and maintenance first, using the same adapters and a local ledger.
-It needs item 3 before it may retry anything.
+It needs item 1 before it may retry anything.
 
-### 6. Report upkeep (status survey §3)
+### 4. Report upkeep (status survey §3)
 
 - Write a decisions-first summary.
 - Move the dated tool and vendor tables to an appendix.
@@ -116,6 +90,13 @@ It needs item 3 before it may retry anything.
   returns a matching earlier result rather than a new run (tsmc28 T1). Decide
   whether the guidance should prefer a fresh run.
 - **More tsmc65 flows.** Spectre/AMS campaigns are the obvious next migration.
+- **Another host: deploy or refuse?** Asked for asic6, sky130 sessions deployed a
+  new asic6 profile (tracked), while xt011 and tsmc28 sessions refused and asked.
+  The owner decides; then say it in the guides (or give profiles several hosts).
+  sky130 now has two extra asic6 profiles under `.tracker-local/`.
+- **PowerShell over-quotes `--parameters`** (`'{\"case\":...}'`). The named
+  refusal makes sessions fix it in one step; a `--parameters-file` or per-key
+  flags would remove the trap.
 
 ## Commands and paths
 
@@ -134,6 +115,7 @@ It needs item 3 before it may retry anything.
   - `python integrations/cluster_jobs/acceptance/run_trials.py --harness claude|codex --repo <checkout> --prompts <prompts.json> --out <private dir>`
   - `python .../analyze.py --harness ... --out ... --launch-pattern '<regex of the untracked launch>'`
   - Prompt sets are in `acceptance/prompts/`. No request may mention tracking.
+  - `--hook-trust persisted` runs Codex without the bypass flag (trust is saved).
 - **Codex** is the desktop app's `%LOCALAPPDATA%/OpenAI/Codex/bin/<hash>/codex.exe`,
   which is not on PATH. The hooks feature is on.
 
@@ -141,7 +123,10 @@ It needs item 3 before it may retry anything.
 
 - **Vendoring invalidates snapshots.** Re-vendoring job code makes every
   deployed snapshot stale, because the job code is packaged. `start` refuses
-  by name; redeploy each repo's profiles.
+  by name; redeploy each repo's profiles. Vendored tests are no longer
+  packaged (`149ea4f`), so a test-only re-vendor is free.
+- **Codex hook trust is keyed to `hooks.json`.** Editing a handler there needs
+  `/hooks` again in that repo; editing `tracker_hook.py` does not.
 - **Only literal workflow calls are captured.** A call wrapped in `timeout` or
   piped is not recorded by PostToolUse.
 - **The guide is behavior.** A stale finding in a guide made three sessions
