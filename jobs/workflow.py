@@ -57,6 +57,17 @@ def parse_parameters(text):
     require(isinstance(value, dict), "--parameters must be a JSON object")
     return value
 
+def read_parameters_file(path):
+    """Read a JSON object, including files written with a UTF-8 BOM."""
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            value = json.load(fh)
+    except (OSError, ValueError):
+        raise ContractError("--parameters-file must name a readable UTF-8 JSON object file")
+    require(isinstance(value, dict), "--parameters-file must contain a JSON object")
+    return value
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True,
                                     separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -351,7 +362,8 @@ def main(argv=None):
     parser.add_argument("operation", choices=("start", "status", "resume", "collect", "tasks", "report", "failures"),
                         help="report: record judgement on a task's failure report; failures: list open ones")
     parser.add_argument("--profile", required=True, help="trusted private profile JSON path")
-    parser.add_argument("--parameters", default="{}", help="JSON object; start only")
+    parser.add_argument("--parameters", help="JSON object; start only")
+    parser.add_argument("--parameters-file", metavar="PATH", help="JSON object file (UTF-8); start only")
     parser.add_argument("--host", help="explicit allowed host; start only")
     parser.add_argument("--reference", help="saved start envelope JSON path; reads only")
     parser.add_argument("--state-dir", default=os.environ.get("ASICJOBS_STATE_DIR"),
@@ -370,6 +382,8 @@ def main(argv=None):
     parser.add_argument("--all", action="store_true", help="failures: include closed reports")
     args = parser.parse_args(argv)
     try:
+        require(args.parameters is None or args.parameters_file is None,
+                "--parameters and --parameters-file cannot be used together")
         with open(args.profile, encoding="utf-8") as fh:
             workflow = Workflow(json.load(fh))
         declaring = dict(cause=args.cause, by=args.by, note=args.note, contradicts=args.contradicts,
@@ -400,11 +414,15 @@ def main(argv=None):
                 store.require_external(args.repo)
                 with open(args.manifest, encoding="utf-8") as fh:
                     manifest = json.load(fh)
-                result = store.start(workflow, args.task_key, parse_parameters(args.parameters),
+                parameters = (read_parameters_file(args.parameters_file)
+                              if args.parameters_file is not None else
+                              parse_parameters(args.parameters if args.parameters is not None else "{}"))
+                result = store.start(workflow, args.task_key, parameters,
                                      bind_source(args.repo, manifest), digest(manifest), args.host,
                                      os.path.abspath(args.profile))
             else:
-                require(args.host is None and args.parameters == "{}" and args.repo is None
+                require(args.host is None and args.parameters in (None, "{}")
+                        and args.parameters_file is None and args.repo is None
                         and args.manifest is None, "resume cannot change the request")
                 result = store.observe(workflow, args.task_key, args.operation == "collect")
         elif args.operation == "start":
@@ -413,7 +431,8 @@ def main(argv=None):
             require(args.task_key is None, "use task-key or reference, not both")
             require(args.repo is None and args.manifest is None, "source options are start-only")
             require(args.reference is not None, "reference required")
-            require(args.host is None and args.parameters == "{}", "resume cannot change the request")
+            require(args.host is None and args.parameters in (None, "{}")
+                    and args.parameters_file is None, "resume cannot change the request")
             with open(args.reference, encoding="utf-8") as fh:
                 reference = json.load(fh)["reference"]
             result = workflow.observe(reference, collect=args.operation == "collect")
