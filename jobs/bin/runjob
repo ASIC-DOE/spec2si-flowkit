@@ -30,10 +30,21 @@
 #
 # Usage:
 #   runjob --flow F --target T [--interval N] [--tool T] [--expect PATH]... \
-#          ( -- CMD... | --cmd64 B64TOKEN... )
+#          [--request KEY [--workspace DIR]] ( -- CMD... | --cmd64 B64TOKEN... )
 #   --cmd64 tokens are base64 argv elements (how the laptop passes an
 #   arbitrary command without any quoting crossing the wire); -- takes the
 #   command literally (how a human or a launcher script calls it).
+#
+# --request KEY makes the launch duplicate-safe (agentic workflow report
+# §6.3). Before anything is created, runjob claims $JOBS/requests/KEY with
+# ONE atomic `ln -s <jobid>`. Only the claimant launches. Any later or
+# concurrent runjob with the same KEY loses the claim and prints the
+# claimant's jobid with "attached":true, launching nothing -- so a caller that
+# lost the acknowledgement may dispatch again under the same KEY. `report.sh
+# request KEY` answers which job owns a KEY. --workspace DIR is created (no
+# -p: a collision is an error) only AFTER the claim, then becomes the cwd; a
+# claimant that finds DIR already there records a failed job (rc 73) rather
+# than leaving a claim with no job behind it.
 #
 # On success prints ONE envelope line: {"schema":1,"kind":"launched",...}.
 set -u
@@ -262,6 +273,8 @@ ptotal=0         # expected total for frac/ETA (0 = unknown)
 plog=""          # log file to parse for progress (default: stdout.log)
 mode=""          # "lit" (-- CMD) or "b64" (--cmd64 TOKENS)
 EXPECTS=""       # comma-joined quoted paths for meta.json
+request=""       # caller request key (duplicate-safe launch)
+workspace=""     # fresh directory created after the claim, then the cwd
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -272,6 +285,8 @@ while [ $# -gt 0 ]; do
 		--progress)     ptool="$2"; shift 2 ;;
 		--total)        ptotal="$2"; shift 2 ;;
 		--progress-log) plog="$2"; shift 2 ;;
+		--request)      request="$2"; shift 2 ;;
+		--workspace)    workspace="$2"; shift 2 ;;
 		--expect)
 			_q="\"$(jstr "$2")\""
 			EXPECTS="${EXPECTS:+$EXPECTS,}$_q"
@@ -310,12 +325,49 @@ stamp=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo 00000000T000000Z)
 rand=$(od -An -N2 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
 [ -n "$rand" ] || rand=$(printf '%04x' $(( $$ % 65536 )))
 jobid="$flow-$target-$stamp-$rand"
+host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+
+# From here to the detach, a dropped ssh session must not stop us half way
+# (claimed but never started).
+trap '' HUP
+
+if [ -n "$request" ]; then
+	case "$request" in
+		*[!A-Za-z0-9._-]*|.*) echo "runjob: bad request key" >&2; exit 2 ;;
+	esac
+	mkdir -p "$JOBS/requests" || { echo "runjob: cannot create $JOBS/requests" >&2; exit 1; }
+	if ! ln -s "$jobid" "$JOBS/requests/$request" 2>/dev/null; then
+		# Lost the claim: the key's job exists (or is being started) already.
+		[ -L "$JOBS/requests/$request" ] || { echo "runjob: request claim is not a link" >&2; exit 1; }
+		_owner=$(readlink "$JOBS/requests/$request") || exit 1
+		case "$_owner" in
+			''|*[!A-Za-z0-9._-]*) echo "runjob: bad request claim" >&2; exit 1 ;;
+		esac
+		printf '{"schema":%s,"kind":"launched","jobid":"%s","host":"%s","dir":"%s","request":"%s","attached":true}\n' \
+			"$SCHEMA" "$(jstr "$_owner")" "$(jstr "$host")" "$(jstr "$JOBS/$_owner")" "$(jstr "$request")"
+		exit 0
+	fi
+elif [ -n "$workspace" ]; then
+	echo "runjob: --workspace requires --request" >&2; exit 2
+fi
 
 DIR="$JOBS/$jobid"
 mkdir -p "$DIR" || { echo "runjob: cannot create $DIR" >&2; exit 1; }
 : >"$DIR/stdout.log"
 
-host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)
+collision=""
+if [ -n "$workspace" ]; then
+	case "$workspace" in
+		/*) ;;
+		*) echo "runjob: workspace must be absolute" >&2; exit 2 ;;
+	esac
+	if mkdir -- "$workspace" 2>/dev/null; then
+		cd -- "$workspace" || exit 1
+	else
+		collision=1
+	fi
+fi
+
 cwd=$(pwd)
 started=$(now)
 
@@ -327,6 +379,19 @@ printf '{"schema":%s,"kind":"meta","jobid":"%s","flow":"%s","target":"%s","host"
 	"$interval" "$(jstr "$ptool")" "$ptotal" "$(jstr "$plog")" \
 	"$(jarr "$@")" "$EXPECTS" >"$_tmp"
 mv -f "$_tmp" "$DIR/meta.json"
+
+if [ -n "$collision" ]; then
+	# The key is ours but its workspace already exists (a launch by an older
+	# runjob that did not claim, or a manual directory). Never reuse an output
+	# area; record a FAILED job synchronously so the key resolves to a terminal
+	# job instead of a claim with nothing behind it.
+	sh "$SELF" __supervise "$DIR" 1 "$started" \
+		sh -c 'echo "runjob: workspace already exists; not launched" >&2; exit 73' \
+		>/dev/null 2>&1 </dev/null
+	printf '{"schema":%s,"kind":"launched","jobid":"%s","host":"%s","dir":"%s","request":"%s","collision":true}\n' \
+		"$SCHEMA" "$(jstr "$jobid")" "$(jstr "$host")" "$(jstr "$JOBS/$jobid")" "$(jstr "$request")"
+	exit 0
+fi
 
 # detach the sidecar. setsid+nohup so it survives the launching ssh session
 # (a tmux/child from a NON-interactive ssh gets reaped by systemd session

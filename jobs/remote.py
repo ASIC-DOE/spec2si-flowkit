@@ -377,6 +377,12 @@ class Transport:
         """Re-check the jobid-stamped artifact hashes (Class-D STALE guard)."""
         return self.read("verify", jobid, **kw)
 
+    def request(self, key, **kw):
+        """Which job owns a caller request key (`run(request=...)`): state
+        "absent", or "claimed" with the jobid and whether it started. Only a
+        KNOWN "absent" means no launch holds the key; anything else is not."""
+        return self.read("request", key, **kw)
+
     def evidence(self, contract, timeout=None):
         """Validate stamped report bytes remotely; return only bounded verdicts."""
         ensured = self.ensure_bin(timeout=timeout)
@@ -388,7 +394,7 @@ class Transport:
 
     def run(self, cmd, flow="job", target="run", interval=5, expect=None,
             progress=None, total=None, progress_log=None, timeout=None,
-            workspace=None):
+            workspace=None, request=None):
         """Launch `cmd` (a list of argv tokens) as a detached, self-reporting
         job via `runjob`, and return its launch envelope (KNOWN with
         .data['jobid']). The command crosses the wire base64-encoded per
@@ -399,7 +405,13 @@ class Transport:
         `progress` (spectre|innovus|calibre|cocotb) + optional `total` and
         `progress_log` turn on live rate/ETA in status.json (Phase 2).
         `workspace` optionally creates a fresh absolute directory beneath an
-        existing parent, then launches/stamps there. A collision stops launch."""
+        existing parent, then launches/stamps there. A collision stops launch.
+
+        `request` is the caller's stable key for this launch (report §6.3).
+        runjob claims it atomically before creating anything, and creates
+        `workspace` only after the claim. Dispatching again with the same key
+        attaches to the claimant's job ("attached": true) instead of launching
+        a second one, so a lost acknowledgement can be resolved by retrying."""
         # Optional fresh, absolute POSIX directory. Never reuse an output area.
         # mkdir (without -p) is intentional: a collision must stop submission.
         if workspace is not None and (
@@ -417,6 +429,8 @@ class Transport:
             if not _SAFE_PATH(p):
                 return Result(UNKNOWN, self.host,
                               reason="unsafe expect path: %r" % p)
+        if request is not None and not _SAFE_ARG(request):
+            return Result(UNKNOWN, self.host, reason="unsafe request key: %r" % request)
         if progress is not None and not _SAFE_ARG(progress):
             return Result(UNKNOWN, self.host,
                           reason="unsafe progress tool: %r" % progress)
@@ -441,10 +455,15 @@ class Transport:
             opts += ["--progress-log", progress_log]
         for p in expect:
             opts += ["--expect", p]
+        import shlex
+        if request is not None:
+            # runjob creates the workspace itself, after it holds the claim.
+            opts += ["--request", request]
+            if workspace is not None:
+                opts += ["--workspace", shlex.quote(workspace)]
         launcher = ('exec /bin/sh "$HOME/%s" %s --cmd64 %s\n') % (
             self.bin_rel + "/runjob", " ".join(opts), " ".join(toks))
-        if workspace is not None:
-            import shlex
+        if workspace is not None and request is None:
             quoted = shlex.quote(workspace)
             launcher = ('mkdir -- %s && cd -- %s || exit 73\n' %
                         (quoted, quoted)) + launcher

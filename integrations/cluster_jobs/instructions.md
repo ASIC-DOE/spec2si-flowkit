@@ -10,8 +10,11 @@ input `--manifest` JSON. Reuse the same key after interruption. The CLI stores
 intent before submission; never use a new key to retry an uncertain launch.
 Use `tasks --profile ... --state-dir ...` to discover references in a new session.
 Retain its JSON reference and job ID. Query `status` or `resume`
-after interruptions; never use `start` to check an existing job. Unknown launch
-acknowledgement means reconcile, not retry. Cached receipts are pointers, not
+after interruptions; never use `start` to check an existing job. A lost launch
+acknowledgement (`submission-unknown`) is reconciled by repeating `start` with the
+SAME task-key: the tracker holds at most one job per task, so this attaches to it,
+or dispatches under that key only if the tracker has none. `resume`/`status` look
+the key up too but never dispatch. Never retry under a new key. Cached receipts are pointers, not
 current job status. If receipt capture fails, preserve the original tool result.
 
 Use `collect` before reporting results. Report execution state, artifact evidence

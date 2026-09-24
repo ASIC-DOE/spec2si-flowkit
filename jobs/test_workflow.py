@@ -111,13 +111,18 @@ class ExampleJobs(unittest.TestCase):
         self.env = dict(os.environ, HOME=self.home)
         for key in ("ASICJOBS_DIR", "ASICJOBS_ID", "ASICJOBS_JOBDIR"):
             self.env.pop(key, None)
-        self.launches = 0
+
+    @property
+    def launches(self):
+        """Jobs the tracker actually started (a job dir with meta.json), not
+        dispatch attempts: an attached re-dispatch must not count."""
+        jobs = os.path.join(self.home, ".asicjobs")
+        return sum(os.path.isfile(os.path.join(jobs, d, "meta.json"))
+                   for d in (os.listdir(jobs) if os.path.isdir(jobs) else ()))
 
     def factory(self, host):
         def runner(argv, input_bytes, timeout):
-            if input_bytes.startswith(b"mkdir -- ") and b"--cmd64" in input_bytes:
-                self.launches += 1
-            proc = subprocess.Popen(["/bin/sh", "-s"], stdin=subprocess.PIPE,
+            proc =subprocess.Popen(["/bin/sh", "-s"], stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     env=self.env, cwd=self.home)
             try:

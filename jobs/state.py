@@ -2,7 +2,17 @@
 
 A permanent exclusive directory reservation permits only its creator to submit.
 An empty/crashed reservation is ambiguous forever; it never grants retry rights.
-No tracker-side exactly-once promise is made.
+
+Lost acknowledgements (report §6.3). The task id is written before dispatch and
+sent as the tracker's request key; runjob claims that key atomically before it
+launches anything, so the tracker holds at most one job per task. A task whose
+acknowledgement was lost is therefore resolved by the key, never by a new one:
+  * resume/status/collect LOOK UP the key and attach the job if one holds it;
+  * a repeated start of the same request also looks it up, and dispatches
+    again under the same key only when the tracker answers "absent". A
+    concurrent or delayed first dispatch then attaches instead of launching.
+An unreachable host is never taken as absence. Records made before request
+keys existed (no `request_protocol`) are never dispatched again.
 """
 import hashlib
 import json
@@ -164,14 +174,14 @@ class TaskStore:
         # Validate everything and select a host before taking the permanent
         # reservation. Probing hosts does not submit compute.
         if os.path.exists(path):
-            return self.existing(workflow, key, signature)
+            return self.existing(workflow, key, signature, parameters, source, manifest_sha256)
         ref, argv = workflow.prepare(parameters, host)
         try:
             os.mkdir(path, 0o700)
         except FileExistsError:
             # A competing process owns this request, including an empty/crashed
             # reservation. It alone has submission rights.
-            return self.existing(workflow, key, signature)
+            return self.existing(workflow, key, signature, parameters, source, manifest_sha256)
         sync_directory(self.directory)
         record = dict(schema=1, task_key=key, intent_sha256=signature,
                       source=source, profile_id=workflow.profile["id"],
@@ -179,23 +189,32 @@ class TaskStore:
                       manifest_sha256=manifest_sha256, bundle_manifest=bundle_manifest(),
                       required_artifacts=workflow.profile["expected_artifacts"],
                       created_at=time.time(), reference=ref,
-                      submission="submission-unknown")
-        # Persist uncertainty BEFORE dispatch. Even a crash before the network
-        # call cannot safely give a later process permission to dispatch again.
+                      submission="submission-unknown", request_protocol=1)
+        # Persist uncertainty BEFORE dispatch. The task id in it is the request
+        # key the tracker will hold, so a lost acknowledgement stays resolvable.
         atomic_json(os.path.join(path, "task.json"), record)
-        if workflow.profile["engineering_report"] is not None:
-            # These are expected identities, NOT measurements of consumed inputs.
-            # Report adapters must compare actual inputs before asserting them.
-            argv = ["/usr/bin/env",
-                    "ASICJOBS_EXPECTED_MANIFEST_SHA256=" + manifest_sha256,
-                    "ASICJOBS_EXPECTED_REQUEST_SHA256=" + ref["request_sha256"],
-                    "ASICJOBS_EXPECTED_SOURCE_SHA256=" + digest(source)] + argv
-        result = workflow.dispatch(dict(ref), argv)
-        record["reference"] = result["reference"]
-        record["submission"] = result["observation"]
-        atomic_json(os.path.join(path, "task.json"), record)
+        result = workflow.dispatch(dict(ref), self.job_argv(workflow, argv, ref, source, manifest_sha256))
+        return self.settle(path, record, result)
+
+    @staticmethod
+    def job_argv(workflow, argv, ref, source, manifest_sha256):
+        if workflow.profile["engineering_report"] is None:
+            return argv
+        # These are expected identities, NOT measurements of consumed inputs.
+        # Report adapters must compare actual inputs before asserting them.
+        return ["/usr/bin/env",
+                "ASICJOBS_EXPECTED_MANIFEST_SHA256=" + manifest_sha256,
+                "ASICJOBS_EXPECTED_REQUEST_SHA256=" + ref["request_sha256"],
+                "ASICJOBS_EXPECTED_SOURCE_SHA256=" + digest(source)] + argv
+
+    def settle(self, path, record, result):
+        """Record a dispatch or reconciliation outcome; a found job id is kept."""
+        if result["reference"]["job_id"] is not None:
+            record["reference"] = result["reference"]
+            record["submission"] = result["observation"]
+            atomic_json(os.path.join(path, "task.json"), record)
         self.record_observation(path, result)
-        result["task_key"] = key
+        result["task_key"] = record["task_key"]
         result["state_path"] = os.path.join(path, "task.json")
         return result
 
@@ -206,12 +225,20 @@ class TaskStore:
                     state_path=os.path.join(self.path(key), "task.json"),
                     reason="Reserved task has no readable intent; never resubmit automatically.")
 
-    def existing(self, workflow, key, signature):
+    def existing(self, workflow, key, signature, parameters, source, manifest_sha256):
         try:
             record = self.read(key)
         except ContractError:
             return self.unresolved(key)
         require(record["intent_sha256"] == signature, "task-key belongs to a different request")
+        if record["reference"]["job_id"] is None and record.get("request_protocol") == 1:
+            # The same request again after a lost acknowledgement: attach, or
+            # dispatch under the same key if the tracker has nothing for it.
+            argv = self.job_argv(workflow, workflow.build_argv(parameters), record["reference"],
+                                 source, manifest_sha256)
+            result = self.settle(self.path(key), record, workflow.reconcile(record["reference"], argv))
+            if result["reference"]["job_id"] is None:
+                return result
         return self.observe(workflow, key)
 
     def record_observation(self, path, result):
@@ -228,6 +255,12 @@ class TaskStore:
             if os.path.isdir(self.path(key)):
                 return self.unresolved(key)
             raise
+        if record["reference"]["job_id"] is None and record.get("request_protocol") == 1:
+            # Look up only: a read never dispatches.
+            result = self.settle(self.path(key), record, workflow.reconcile(record["reference"]))
+            if result["reference"]["job_id"] is None:
+                return result
+            record = self.read(key)
         identity = dict(manifest_sha256=record["manifest_sha256"],
                         request_sha256=record["reference"]["request_sha256"],
                         source_sha256=digest(record["source"]))

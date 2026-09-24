@@ -14,7 +14,8 @@ durable task records across sessions. Starts now require `--state-dir`, a stable
 See [durable linkage and current invocation](../../docs/job_tracker_wp3.md).
 The session receipt-cache limitations below describe that cache, not the new
 durable task store. Pre-dispatch persistence and cross-session discovery are now
-implemented in `jobs/state.py`; tracker-side reconciliation is still unresolved.
+implemented in `jobs/state.py`, and tracker-side reconciliation by request key
+(report §6.3) in `jobs/state.py`, `jobs/workflow.py` and `jobs/bin/runjob`.
 
 This opt-in flowkit package supplies startup instructions, a command guard and
 post-tool reference capture. Nothing here installs hooks or edits consumers.

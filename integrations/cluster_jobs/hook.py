@@ -16,7 +16,9 @@ SHELL_TOOLS = ("Bash", "PowerShell", "exec_command", "shell", "shell_command")
 MODULES = ("jobs.workflow", "deployment.bnl.jobs.workflow")
 GUIDANCE = ("Use the configured jobs.workflow profile for supported compute requests by default. "
             "Retain the returned reference; resume/status reads the existing job, never starts it again. "
-            "An unknown submission requires reconciliation, not retry. Collect before reporting results. "
+            "An unknown submission is reconciled by repeating start with the SAME task-key: it attaches to the "
+            "job the tracker holds for that key, or dispatches under that key only if the tracker has none. "
+            "Never retry under a new key. Collect before reporting results. "
             "Execution completion and tracker-verified artifacts are not an engineering pass; "
             "Report engineering pass/fail only from collect's validated engineering field; unchecked/invalid is not pass. "
             "Use ordinary transport for read-only diagnostics. Do not bypass a denial using another shell. "
@@ -316,7 +318,7 @@ def handle(event, cfg):
         note = (" Not captured here (another repository's job; record it from that project): "
                 + ", ".join(foreign) + "." if foreign else "")
         return context(kind, ("Workflow references captured: " + json.dumps(paths) if paths else
-                              "No workflow reference captured; retain the original result. If launch acknowledgement is lost, reconcile; do not resubmit.") +
+                              "No workflow reference captured; retain the original result. If launch acknowledgement is lost, repeat start with the same task-key to reconcile; never use a new key.") +
                        note +
                        " Collect before reporting results. Use the validated engineering field and failed/missing checks; never infer pass from process exit or hashes.")
     if kind == "PreToolUse" and opaque:

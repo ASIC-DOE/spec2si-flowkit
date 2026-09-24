@@ -173,7 +173,8 @@ class Workflow:
         ref, argv = self.prepare(parameters, host)
         return self.dispatch(ref, argv)
 
-    def prepare(self, parameters, host=None):
+    def build_argv(self, parameters):
+        """Validate `parameters` against the profile and return the job argv."""
         p = self.profile
         require(isinstance(parameters, dict) and set(parameters) == set(p["parameters"]),
                 "parameters must match profile exactly")
@@ -183,6 +184,11 @@ class Workflow:
             require(type(value) is typ, "incorrect parameter type")
             require("choices" not in spec or value in spec["choices"], "parameter outside choices")
             require(str(value) != "" and "\x00" not in str(value), "empty/NUL argv unsupported")
+        return [str(parameters[t["parameter"]]) if isinstance(t, dict) else t for t in p["argv"]]
+
+    def prepare(self, parameters, host=None):
+        p = self.profile
+        argv = self.build_argv(parameters)
         policy = p["host_policy"]
         chosen = host if host is not None else policy["default"]
         if chosen == "auto":
@@ -194,31 +200,59 @@ class Workflow:
                    profile_sha256=digest(p), repository=p["repository"],
                    workspace=posixpath.join(p["work_root"], task),
                    request_sha256=digest(parameters))
-        argv = [str(parameters[t["parameter"]]) if isinstance(t, dict) else t for t in p["argv"]]
         return ref, argv
 
     def dispatch(self, ref, argv):
+        """Launch under the task id as the tracker-side request key: a second
+        dispatch of the same task attaches to the first job, never a second."""
         p = self.profile
         progress = p["progress"] or {}
         res = self.transport(ref["host"]).run(
             argv, flow=p["id"], target="run", interval=1,
             expect=p["expected_artifacts"], workspace=ref["workspace"],
             progress=progress.get("tool"), progress_log=progress.get("log"),
-            total=progress.get("total"))
+            total=progress.get("total"), request=ref["task_id"])
         data = res.data or {}
         if res.status != KNOWN or res.rc != 0 or data.get("kind") != "launched" or not identifier(data.get("jobid")):
             return self.envelope(ref, "submission-unknown", "reconcile")
         ref["job_id"] = data["jobid"]
-        return self.envelope(ref, "submitted", "status")
+        return self.envelope(ref, "submitted", "status", attached=data.get("attached") is True)
 
-    def observe(self, reference, collect=False, identity=None):
-        result = self._observe(reference, collect, identity)
-        if collect:
-            result["evidence_summary"] = evidence_summary(result)
-        return result
+    def reconcile(self, reference, argv=None):
+        """Resolve a lost acknowledgement (job_id None) by the task's request key.
 
-    def _observe(self, reference, collect=False, identity=None):
-        ref = reference
+        A job that holds the key is attached. With `argv` (only a repeated
+        start of the same request passes it), a KNOWN "absent" dispatches again
+        under the SAME key, which the tracker's claim makes duplicate-safe.
+        An unreachable host or unreadable answer is never taken as absence.
+        """
+        ref = self.check_reference(reference)
+        require(ref["job_id"] is None, "reference already has a job")
+        res = self.transport(ref["host"]).request(ref["task_id"])
+        data = res.data or {}
+        if (res.status != KNOWN or res.rc != 0 or data.get("kind") != "request"
+                or data.get("key") != ref["task_id"]):
+            return self.envelope(ref, "submission-unknown", "reconcile",
+                                 reason="request lookup unavailable; an unreachable host is not proof "
+                                        "that no job was launched. Repeat later with the same task-key.")
+        if data.get("state") == "claimed" and identifier(data.get("jobid")):
+            if data.get("started") is not True:
+                return self.envelope(ref, "submission-unknown", "reconcile",
+                                     reason="the tracker holds this request for job %s but has no record "
+                                            "that it started; inspect ~/.asicjobs/requests/%s before "
+                                            "anything else" % (data["jobid"], ref["task_id"]))
+            ref["job_id"] = data["jobid"]
+            return self.envelope(ref, "submitted", "status", reconciled=True)
+        if data.get("state") == "absent":
+            if argv is None:
+                return self.envelope(ref, "submission-unknown", "reconcile",
+                                     reason="no job holds this request on the tracker; repeat start with "
+                                            "the same task-key to dispatch it (never a new key)")
+            return self.dispatch(ref, argv)
+        return self.envelope(ref, "submission-unknown", "reconcile", reason="unrecognized request lookup")
+
+    def check_reference(self, reference):
+        ref = dict(reference)
         fields(ref, ("schema", "task_id", "host", "job_id", "profile_sha256",
                      "repository", "workspace", "request_sha256"))
         require(ref["schema"] == 1 and identifier(ref["task_id"]), "invalid reference")
@@ -227,6 +261,16 @@ class Workflow:
                 ref["workspace"] == posixpath.join(self.profile["work_root"], ref["task_id"]),
                 "reference workspace/repository mismatch")
         require(ref["host"] in self.profile["host_policy"]["allowed"], "invalid reference host")
+        return ref
+
+    def observe(self, reference, collect=False, identity=None):
+        result = self._observe(reference, collect, identity)
+        if collect:
+            result["evidence_summary"] = evidence_summary(result)
+        return result
+
+    def _observe(self, reference, collect=False, identity=None):
+        ref = self.check_reference(reference)
         if ref["job_id"] is None:
             return self.envelope(ref, "submission-unknown", "reconcile")
         require(identifier(ref["job_id"]), "invalid job id")

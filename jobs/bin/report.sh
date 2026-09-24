@@ -25,6 +25,7 @@
 #   status <jobid>   one job's published status.json (schema>=1) -- Phase 1
 #   events [n]       last n terminal events from events.jsonl     -- Phase 3
 #   why <jobid>      diagnosis bundle: status + result + live ps  -- Phase 3
+#   request <key>    the job that owns a caller request key, or "absent"
 set -u
 
 SCHEMA=1
@@ -272,6 +273,36 @@ cmd_why() {
 		"$SCHEMA" "$(jstr "$_id")" "$_status" "$_result" "$_ps"
 }
 
+# request <key>: which job, if any, owns a caller's request key (runjob
+# --request). The claim is a symlink $JOBS/requests/<key> -> <jobid>, made
+# atomically before anything launches. "absent" is said only when $JOBS was
+# reached: an unreadable $JOBS is an error envelope, never an absence.
+cmd_request() {
+	_k="${1:-}"
+	[ -n "$_k" ] || fail_envelope "missing_request_key"
+	case "$_k" in
+		*[!A-Za-z0-9._-]*|.*) fail_envelope "bad_request_key" ;;
+	esac
+	{ [ -d "$JOBS" ] && [ -r "$JOBS" ] && [ -x "$JOBS" ]; } || fail_envelope "jobs_dir_unreadable"
+	_c="$JOBS/requests/$_k"
+	if [ ! -L "$_c" ]; then
+		[ -e "$_c" ] && fail_envelope "request_claim_not_a_link"
+		printf '{"schema":%s,"kind":"request","key":"%s","state":"absent"}\n' \
+			"$SCHEMA" "$(jstr "$_k")"
+		return
+	fi
+	_id=$(readlink "$_c" 2>/dev/null) || fail_envelope "request_claim_unreadable"
+	case "$_id" in
+		''|*[!A-Za-z0-9._-]*) fail_envelope "bad_request_claim" ;;
+	esac
+	# the claimant writes meta.json before it detaches anything; without it
+	# the claim was taken but no job was (yet, or ever) started.
+	_started=false
+	[ -f "$JOBS/$_id/meta.json" ] && _started=true
+	printf '{"schema":%s,"kind":"request","key":"%s","state":"claimed","jobid":"%s","started":%s}\n' \
+		"$SCHEMA" "$(jstr "$_k")" "$(jstr "$_id")" "$_started"
+}
+
 sub="${1:-probe}"
 [ $# -gt 0 ] && shift
 case "$sub" in
@@ -281,5 +312,6 @@ case "$sub" in
 	events) cmd_events "$@" ;;
 	why)    cmd_why "$@" ;;
 	verify) cmd_verify "$@" ;;
+	request) cmd_request "$@" ;;
 	*)      fail_envelope "unknown_subcommand" ;;
 esac

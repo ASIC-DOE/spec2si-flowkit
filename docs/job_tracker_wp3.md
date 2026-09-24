@@ -1,5 +1,10 @@
 # WP3 — durable task-to-job linkage
 
+**Request-key update (2026-09-24):** lost acknowledgements are now
+reconciled by a tracker-side request key; see
+[Tracker-side request key](#tracker-side-request-key-2026-09-24) below. The recovery
+table and "no caller request key" paragraph describe the original boundary.
+
 **WP4 update:** [strict collection](job_tracker_wp4.md) now uses these durable
 identities to validate normalized reports and writes collection JSON/Markdown.
 The statements below about future WP4 describe the original WP3 boundary.
@@ -140,3 +145,42 @@ tests explicitly skipped. Python 3.6 grammar checks and `git diff --check` passe
 WP3 supplies local durable linkage and conservative recovery. Tracker-side keyed
 reconciliation remains an optional extension. WP4 engineering evidence checks,
 WP5 compatibility/rollout and real harness activation remain pending.
+
+## Tracker-side request key (2026-09-24)
+
+The agentic workflow report's §6.3 asks for submission intent recorded before
+dispatch, and for a stable idempotency key reconciled with the remote record
+after a lost connection. The task id already met the first half: it is written
+atomically before dispatch. It is now also the tracker's **request key**.
+
+- **runjob `--request KEY`** claims `$JOBS/requests/KEY` with one atomic
+  `ln -s <jobid>` before it creates anything. Only the claimant launches. A later
+  or concurrent runjob with the same key loses the claim and prints the
+  claimant's job id with `"attached": true`, launching nothing. The claims live
+  on the shared home, so this holds across hosts.
+- **`--workspace`** is created by runjob after the claim (no `-p`). A claimant
+  that finds the workspace already present records a failed job (rc 73)
+  instead of leaving a claim with nothing behind it.
+- **`report.sh request KEY`** answers `absent`, or `claimed` with the job id and
+  whether it started. `absent` is said only after `$JOBS` was reached.
+- **`TaskStore`** records `request_protocol: 1`. On a task without a job id,
+  `resume`/`status`/`collect` look the key up and attach the job; they never
+  dispatch. A repeated `start` of the same request looks it up too, and
+  dispatches again under the same key only on a KNOWN `absent`. Records without
+  `request_protocol` are never dispatched again.
+
+| Failure point | Recovery now |
+|---|---|
+| Crash after saved intent, before network call | `resume` reports "no job holds this request"; a repeated `start` dispatches it once |
+| Dispatch response lost or malformed | `resume` or a repeated `start` attaches the job the tracker holds |
+| Two repeated starts race | Both may dispatch; the claim lets one launch and the other attaches |
+| A delayed first dispatch arrives after a retry | It loses the claim and attaches |
+| Lookup unreachable or unreadable | Still `submission-unknown`; never read as absence |
+| Claimed, but no job record | `submission-unknown` naming the job id; inspect `~/.asicjobs/requests/<task id>` |
+| Crash after reservation but before readable intent | Unchanged: no task id was saved, so nothing can be looked up |
+
+Tested with the real runjob/report.sh on a temporary `$HOME`
+(`jobs/test_request_key.py`): lost acknowledgement resolved by `resume` and by a
+repeated `start`, crash before dispatch, two racing repeated starts, a delayed
+duplicate dispatch and a workspace collision each leave exactly one job.
+Disabling the claim makes four of them fail.
