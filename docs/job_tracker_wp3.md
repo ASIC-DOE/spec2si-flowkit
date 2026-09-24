@@ -184,3 +184,9 @@ Tested with the real runjob/report.sh on a temporary `$HOME`
 repeated `start`, crash before dispatch, two racing repeated starts, a delayed
 duplicate dispatch and a workspace collision each leave exactly one job.
 Disabling the claim makes four of them fail.
+
+Live on asic7 with sky130's OTA flow (2026-09-24): the launch ran and its
+reply was discarded (`submission-unknown`); `resume` attached
+`ota6-schematic-run-20260924T180838Z-184b`; a repeated `start` and a raw
+duplicate dispatch of the same task both attached to it; a lookup of an unused
+key said `absent`; collection passed 7/7. The cluster gained exactly one job.

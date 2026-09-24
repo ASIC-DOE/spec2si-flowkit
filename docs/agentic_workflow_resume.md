@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted; next is duplicate-safe submission (§6.3). Includes the commands, paths, tooling and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3); next is the §8 baseline. Includes the commands, paths, tooling and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -27,15 +27,15 @@ for r in flowkit tsmc65 tsmc28 xt011 sky130; do cd /c/dev/spec2si-$r; git fetch 
 python sync.py --check-all      # from flowkit; routekit / apiref / housekeeping drift is known and not ours
 ```
 
-All five repos were pushed and in sync at the end of the second 2026-09-24
+All five repos were pushed and in sync at the end of the third 2026-09-24
 session (branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
 
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
 |---|---|---|---|
-| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-006 on asic8, `.tracker-local/` |
-| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-005, ADC snapshot-20260924-03, both on asic7 |
-| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260924-02 on asic7 |
-| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260924-03 on asic7 (plus two asic6 profiles the trial sessions deployed) |
+| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-007 on asic8, `.tracker-local/` |
+| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-006, ADC snapshot-20260924-05, both on asic7 |
+| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260924-03 on asic7 |
+| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260924-04 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
 
 Codex hook trust is **persisted** in all four consumers, and a canary without
 the bypass flag passes in each. Profiles were all redeployed after flowkit
@@ -51,15 +51,12 @@ sky130 `docs/tracked_jobs.md`.
 persisted Codex hook trust. The §9.1 operational gates are now run in all four
 consumers. Evidence is in each repo's guide and in the status survey.
 
-### 1. Duplicate-safe submission (study §6.3; still open)
+**Done (third session):** duplicate-safe submission (§6.3), flowkit `37ce65e`.
+The task id is the tracker's request key; see the
+[WP3 request-key section](job_tracker_wp3.md#tracker-side-request-key-2026-09-24).
+All five profiles were redeployed afterwards.
 
-`Transport.run` has no caller request key, so a lost acknowledgement ends as
-`submission-unknown` and stops. Design a request key that is persisted
-atomically before launch and resolved on the tracker side. Test both crash
-points on either side of dispatch, and two concurrent starts. Flowkit only;
-then vendor.
-
-### 2. The §8 baseline and ablation
+### 1. The §8 baseline and ablation
 
 Status-survey improvement 2: use the session-log harvest
 (`browse/runlog.py`, committed `analog/specs/runlog.jsonl` in each repo) to
@@ -67,12 +64,12 @@ count raw `ssh`/`nohup`/wrapper compute launches before and after activation.
 That is condition A, and the untracked-launch rate the tracker cannot see.
 Then define the B-versus-C comparison on frozen tasks.
 
-### 3. The first bounded autonomous worker (study §9.2)
+### 2. The first bounded autonomous worker (study §9.2)
 
 Diagnosis and maintenance first, using the same adapters and a local ledger.
-It needs item 1 before it may retry anything.
+Its retries can now rely on request keys (§6.3 is built).
 
-### 4. Report upkeep (status survey §3)
+### 3. Report upkeep (status survey §3)
 
 - Write a decisions-first summary.
 - Move the dated tool and vendor tables to an appendix.
