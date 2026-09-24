@@ -35,9 +35,12 @@ PROPOSAL = {
 
 #: Claude's tool allowance: edit files, read, run the tests, look at git. No
 #: other shell command, so no ssh, no job launch, no commit, no push.
-CLAUDE_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep",
-                "Bash(py -3 -m pytest:*)", "Bash(python -m pytest:*)", "Bash(python3 -m pytest:*)",
-                "Bash(git diff:*)", "Bash(git status:*)", "Bash(git log:*)", "Bash(git show:*)"]
+#: Both shell tools are listed: on Windows the model often reaches for
+#: PowerShell, and pilot 1's worker could not run its tests with Bash rules only.
+_SHELL_OK = ["py -3 -m pytest:*", "python -m pytest:*", "python3 -m pytest:*",
+             "git diff:*", "git status:*", "git log:*", "git show:*"]
+CLAUDE_TOOLS = (["Read", "Edit", "Write", "Glob", "Grep"]
+                + ["Bash(%s)" % c for c in _SHELL_OK] + ["PowerShell(%s)" % c for c in _SHELL_OK])
 
 
 def codex_exe():

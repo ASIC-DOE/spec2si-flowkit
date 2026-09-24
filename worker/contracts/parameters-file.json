@@ -1,0 +1,22 @@
+{
+ "schema": 1,
+ "id": "parameters-file",
+ "kind": "maintenance",
+ "goal": "In jobs/workflow.py, add a `--parameters-file PATH` option to the CLI as an alternative to `--parameters` for `start`: it reads a JSON object from the file (accept a UTF-8 BOM). Refuse giving both `--parameters` and `--parameters-file`; a missing, unreadable or non-object file is a ContractError whose message names `--parameters-file`; the read operations (status/resume/collect) refuse it exactly as they refuse a changed request. Keep `--parameters` working as before. The acceptance test jobs/test_parameters_file.py states the decision.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "base": "HEAD",
+ "context": ["jobs/workflow.py", "jobs/test_parameters_file.py"],
+ "editable": ["jobs/workflow.py"],
+ "protected": ["jobs/test_state.py", "jobs/test_workflow.py"],
+ "gates": [
+  {"name": "acceptance", "acceptance": true, "protects": ["jobs/test_parameters_file.py"],
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "jobs/test_parameters_file.py"],
+   "timeout": 300},
+  {"name": "jobs-suite",
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "jobs",
+           "--ignore=jobs/test_parameters_file.py", "--ignore=jobs/test_isolated_bundle.py"],
+   "timeout": 900}
+ ],
+ "budget": {"rounds": 3, "usd": 8.0, "minutes": 60, "per_round_usd": 3.0},
+ "harness": {"name": "codex", "round_timeout": 1500}
+}
