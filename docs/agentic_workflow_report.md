@@ -10,7 +10,7 @@ summary: Task-by-task assessment of the incremental benefits of persistent agent
 
 # Agentic workflows versus chat-based engineering in spec2si
 
-Research snapshot: **16 September 2026**. This is a comparative study and proposed adoption plan, not a report of a deployed agent pilot. Repository observations, published results and engineering judgments are distinguished below. No EDA jobs were launched for this study.
+Research snapshot: **16 September 2026**. For what has been built since, see [the status survey](agentic_workflow_status.md). This is a comparative study and proposed adoption plan, not a report of a deployed agent pilot. Repository observations, published results and engineering judgments are distinguished below. No EDA jobs were launched for this study.
 
 ## 1. The question and the recommendation
 
