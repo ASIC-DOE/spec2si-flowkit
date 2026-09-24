@@ -202,9 +202,16 @@ class Run:
         lines += ["", "The controller, not you, runs these gates after your turn and decides:"]
         lines += ["- %s%s: %s" % (g["name"], " (acceptance)" if g["acceptance"] else "", " ".join(g["run"]))
                   for g in c["gates"]]
-        lines += ["You may run pytest yourself to iterate. You cannot run other commands, commit, or push.",
-                  "Round %d of %d. Budget left about $%.2f." % (len(self.rounds) + 1, c["budget"]["rounds"],
-                                                               c["budget"]["usd"] - self.cost)]
+        if c["harness"]["name"] == "codex":
+            # Codex reads and edits through the shell; its sandbox (workspace writes, no
+            # network) is the boundary. Pilot 2's first worker obeyed a pytest-only line
+            # meant for Claude and could not read a file when its reader tool crashed.
+            lines += ["Use shell commands freely inside the worktree to read, edit and test (the sandbox "
+                      "blocks the network). Do not commit, push, or touch anything outside the worktree."]
+        else:
+            lines += ["You may run pytest yourself to iterate. You cannot run other commands, commit, or push."]
+        lines += ["Round %d of %d. Budget left about $%.2f." % (len(self.rounds) + 1, c["budget"]["rounds"],
+                                                            c["budget"]["usd"] - self.cost)]
         if self.rounds:
             lines += ["", "EARLIER ROUNDS:"]
             for i, r in enumerate(self.rounds, 1):
