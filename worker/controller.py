@@ -26,6 +26,19 @@ that must be trusted:
      FAILURE REPORT in jobs/failure.py's format: the handoff back to
      exploration. Nothing is merged or pushed; the engineer reviews.
 
+Gates are local commands, or TRACKED cluster jobs: the controller packages and
+deploys the worktree's adapter to a run-specific snapshot (no licence), starts
+the job through jobs.workflow under a stable request key, and waits for
+`collect` itself. A tracked gate passes only on a verified engineering pass;
+on a fail its failure report is what the next round reads. Tracked runs count
+against `budget.licensed_jobs`.
+
+A `diagnosis` contract starts from a failure: the contract's `failure_report`
+and the baseline failure reports of its tracked gates are put in front of the
+worker, which reports observations apart from hypotheses and may ask for ONE
+discriminating experiment per round (a tracked gate re-run with other
+parameters) instead of a patch.
+
 Every event is appended to `ledger.jsonl` in the run directory.
 Standard library only.
 """
@@ -47,6 +60,8 @@ GATE_OUTPUT_MAX = 6000
 #: Byproducts of running gates, never the worker's change.
 BYPRODUCTS = ("*.pyc", "*/__pycache__/*", "__pycache__/*", ".pytest_cache/*", "*/.pytest_cache/*")
 DIFF_LINES_MAX = 600
+TRACKED_FIELDS = {"adapter", "snapshot_root", "host", "work_root", "parameters", "state_dir", "poll_seconds"}
+TERMINAL = ("done", "failed", "killed")
 
 
 class Refusal(ValueError):
@@ -72,20 +87,36 @@ def load_contract(path):
     c.setdefault("protected", [])
     c.setdefault("context", [])
     c.setdefault("base", "HEAD")
+    c.setdefault("failure_report", None)
+    require(c["failure_report"] is None or os.path.isfile(c["failure_report"]),
+            "failure_report must be an existing file")
     gates = c["gates"]
     require(isinstance(gates, list) and gates, "at least one gate")
     for g in gates:
-        require(set(g) <= {"name", "run", "timeout", "acceptance", "protects"} and {"name", "run"} <= set(g),
-                "gate fields: name, run, timeout, acceptance, protects")
-        require(isinstance(g["run"], list) and g["run"] and all(isinstance(a, str) for a in g["run"]),
-                "gate run is an argv list")
+        require(set(g) <= {"name", "run", "tracked", "timeout", "acceptance", "protects"}
+                and "name" in g and (("run" in g) != ("tracked" in g)),
+                "gate fields: name, run or tracked, timeout, acceptance, protects")
+        if "run" in g:
+            require(isinstance(g["run"], list) and g["run"] and all(isinstance(a, str) for a in g["run"]),
+                    "gate run is an argv list")
+        else:
+            t = g["tracked"]
+            require(set(t) <= TRACKED_FIELDS and {"adapter", "snapshot_root", "host", "work_root", "parameters",
+                                                   "state_dir"} <= set(t),
+                    "tracked gate fields: " + ", ".join(sorted(TRACKED_FIELDS)))
+            require(isinstance(t["parameters"], dict), "tracked parameters is an object")
+            t.setdefault("poll_seconds", 20)
         g.setdefault("timeout", 600)
         g.setdefault("acceptance", False)
         g.setdefault("protects", [])
         c["protected"] = c["protected"] + g["protects"]
     require(any(g["acceptance"] for g in gates), "at least one acceptance gate (it must fail before the change)")
     b = c["budget"]
-    require(set(b) <= {"rounds", "usd", "minutes", "per_round_usd"}, "budget fields: rounds, usd, minutes, per_round_usd")
+    require(set(b) <= {"rounds", "usd", "minutes", "per_round_usd", "licensed_jobs"},
+            "budget fields: rounds, usd, minutes, per_round_usd, licensed_jobs")
+    b.setdefault("licensed_jobs", 0)
+    tracked = sum(1 for g in gates if "tracked" in g)
+    require(b["licensed_jobs"] >= tracked, "licensed_jobs must cover at least one run of each tracked gate")
     b.setdefault("rounds", 3)
     b.setdefault("usd", 6.0)
     b.setdefault("minutes", 60)
@@ -126,6 +157,9 @@ class Run:
         self.cost = 0.0
         self.rounds = []
         self.diffs = set()
+        self.licensed = 0
+        self.experiments = []
+        self.baseline_reports = []
 
     # -- ledger ------------------------------------------------------------
     def log(self, event, **fields):
@@ -143,6 +177,7 @@ class Run:
         self.log("preflight", repo=repo, base=base, branch=self.branch, worktree=self.wt,
                  checkout_dirty_files=len(dirty), contract=self.c)
         gates = self.gates("baseline")
+        self.baseline_reports = [g["failure_report"] for g in gates if g.get("failure_report")]
         broken = [g["name"] for g in gates if not g["acceptance"] and not g["passed"]]
         done = all(g["passed"] for g in gates if g["acceptance"])
         return gates, broken, done
@@ -151,6 +186,9 @@ class Run:
         results = []
         for g in self.c["gates"]:
             t0 = self.clock()
+            if "tracked" in g:
+                results.append(self.tracked_gate(g, label))
+                continue
             try:
                 p = subprocess.run(g["run"], cwd=self.wt, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    timeout=g["timeout"], env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
@@ -164,9 +202,91 @@ class Run:
                 fh.write(out)
             results.append(dict(name=g["name"], acceptance=g["acceptance"], rc=rc, passed=rc == 0,
                                 seconds=round(self.clock() - t0, 1), log=path, tail=out[-GATE_OUTPUT_MAX:]))
-        self.log("gates", label=label, results=[{k: r[k] for k in ("name", "acceptance", "rc", "passed", "seconds", "log")}
-                                              for r in results])
+        self.log("gates", label=label, licensed_jobs=self.licensed,
+                 results=[{k: r.get(k) for k in ("name", "acceptance", "rc", "passed", "seconds", "log", "task_key",
+                                                  "job_id", "engineering", "failure_report")} for r in results])
         return results
+
+    def py(self):
+        return ["py", "-3"] if os.name == "nt" else ["python3"]
+
+    def step(self, argv, timeout, label):
+        """Run one controller step in the worktree -> (rc, stdout text)."""
+        try:
+            p = subprocess.run(argv, cwd=self.wt, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
+                               env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+            return p.returncode, p.stdout.decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            return None, "%s timed out after %ds" % (label, timeout)
+
+    def tracked_gate(self, g, label, parameters=None):
+        """Package and deploy the worktree, run the job tracked, and collect it."""
+        t = g["tracked"]
+        tag = "%s-%s" % (label, re.sub(r"[^A-Za-z0-9._-]", "_", g["name"]))
+        name = "worker-%s-%s" % (self.id, tag)
+        out = dict(name=g["name"], acceptance=g["acceptance"], rc=None, passed=False, tracked=True,
+                   task_key=name, log=None, tail="")
+        t0 = self.clock()
+        if self.licensed >= self.c["budget"]["licensed_jobs"]:
+            out["tail"] = "not run: licensed-job budget exhausted (%d)" % self.licensed
+            out["seconds"] = 0.0
+            return out
+        pkg, prof = os.path.join(self.dir, "pkg-" + tag), os.path.join(self.dir, "profile-" + tag)
+        params = os.path.join(self.dir, "params-%s.json" % tag)
+        with open(params, "w", encoding="utf-8") as fh:
+            json.dump(parameters if parameters is not None else t["parameters"], fh)
+        log = []
+        steps = [
+            ("package", self.py() + [t["adapter"], "package", "--repo", ".", "--output", pkg], 600),
+            ("deploy", self.py() + [t["adapter"], "deploy", "--repo", ".", "--package", pkg, "--snapshot",
+                                    t["snapshot_root"].rstrip("/") + "/" + name, "--host", t["host"],
+                                    "--work-root", t["work_root"], "--output", prof], 900),
+            ("start", self.py() + ["-m", "deployment.bnl.jobs.workflow", "start", "--profile",
+                                   os.path.join(prof, "profile.json"), "--state-dir", t["state_dir"],
+                                   "--task-key", name, "--repo", ".", "--manifest",
+                                   os.path.join(prof, "manifest.json"), "--parameters-file", params,
+                                   "--host", t["host"]], 600)]
+        for step_name, argv, timeout in steps:
+            rc, text = self.step(argv, timeout, step_name)
+            log.append("== %s rc=%s\n%s" % (step_name, rc, text[-3000:]))
+            if rc not in (0, 4) or (step_name != "start" and rc != 0):
+                out["tail"] = "\n".join(log)[-GATE_OUTPUT_MAX:]
+                out["seconds"] = round(self.clock() - t0, 1)
+                return self.gate_log(out, tag, log)
+            if step_name == "start":
+                self.licensed += 1
+        deadline = self.clock() + g["timeout"]
+        collected = {}
+        while True:
+            rc, text = self.step(self.py() + ["-m", "deployment.bnl.jobs.workflow", "collect", "--profile",
+                                              os.path.join(prof, "profile.json"), "--state-dir", t["state_dir"],
+                                              "--task-key", name], 600, "collect")
+            try:
+                collected = json.loads(text[text.index("{"):])
+            except ValueError:
+                collected = {}
+            if collected.get("observation") in TERMINAL or self.clock() > deadline:
+                break
+            time.sleep(t["poll_seconds"])
+        log.append("== collect rc=%s\n%s" % (rc, json.dumps({k: collected.get(k) for k in (
+            "observation", "execution_rc", "evidence", "engineering", "checks_passed", "checks_failed",
+            "failed_checks", "missing_checks", "issues", "failure_cause")}, indent=1)))
+        report = collected.get("failure_report")
+        if report and os.path.isfile(report):
+            log.append("== failure report\n" + open(report, encoding="utf-8").read())
+            out["failure_report"] = report
+        out.update(rc=0 if collected.get("engineering") == "pass" else 1,
+                   passed=collected.get("engineering") == "pass" and collected.get("evidence") == "tracker-verified",
+                   job_id=collected.get("job_id"), engineering=collected.get("engineering"),
+                   seconds=round(self.clock() - t0, 1), tail="\n".join(log)[-GATE_OUTPUT_MAX:])
+        return self.gate_log(out, tag, log)
+
+    def gate_log(self, out, tag, log):
+        path = os.path.join(self.dir, "%s.log" % tag)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(log))
+        out["log"] = path
+        return out
 
     def scope(self):
         """-> (changed paths, diff text, violation or None). Untracked files count."""
@@ -199,8 +319,25 @@ class Run:
         ]
         if c["context"]:
             lines += ["Read these first: " + ", ".join(c["context"])]
+        if c["kind"] == "diagnosis":
+            lines += ["", "DIAGNOSIS: the failure below is your starting point. Find its cause from evidence; keep "
+                          "what you observed apart from what you infer. Fix it within the editable paths, or, if one "
+                          "run would settle between hypotheses, ask for ONE experiment (action=experiment: a tracked "
+                          "gate name and a JSON object of its parameters). If the cause lies outside the editable "
+                          "paths or needs a design decision, stop and say what the engineer must decide."]
+            reports = ([c["failure_report"]] if c["failure_report"] else []) + self.baseline_reports
+            for path in reports[:3]:
+                lines += ["", "FAILURE REPORT (%s):" % path, open(path, encoding="utf-8").read()[-5000:]]
+        tracked = [g["name"] for g in c["gates"] if "tracked" in g]
+        if tracked:
+            lines += ["Tracked cluster gates (%s) run licensed jobs; the controller runs them, never you. "
+                      "Licensed runs left: %d." % (", ".join(tracked), c["budget"]["licensed_jobs"] - self.licensed)]
         lines += ["", "The controller, not you, runs these gates after your turn and decides:"]
-        lines += ["- %s%s: %s" % (g["name"], " (acceptance)" if g["acceptance"] else "", " ".join(g["run"]))
+        lines += ["- %s%s: %s" % (g["name"], " (acceptance)" if g["acceptance"] else "",
+                                  " ".join(g["run"]) if "run" in g else
+                                  "tracked job via %s on %s, parameters %s" % (
+                                      g["tracked"]["adapter"], g["tracked"]["host"],
+                                      json.dumps(g["tracked"]["parameters"])))
                   for g in c["gates"]]
         if c["harness"]["name"] == "codex":
             # Codex reads and edits through the shell; its sandbox (workspace writes, no
@@ -222,11 +359,31 @@ class Run:
             for g in last_gates:
                 lines += ["--- %s: %s" % (g["name"], "PASS" if g["passed"] else "FAIL rc=%s" % g["rc"]),
                           g["tail"][-2500:] if not g["passed"] else ""]
+        if self.experiments:
+            lines += ["", "EXPERIMENT RESULTS:"] + self.experiments[-2:]
         lines += ["", "End with the structured proposal. action=patch when the worktree holds your change; "
                       "action=stop if you cannot meet the goal within the editable paths, with stop_reason and "
                       "the question the engineer must answer. Keep observations (seen) apart from hypotheses "
                       "(inferred)."]
         return "\n".join(lines)
+
+    def experiment(self, p, n):
+        """Run ONE tracked gate with the worker's parameters; the result goes to the next round."""
+        gate = next((g for g in self.c["gates"] if g["name"] == p.get("experiment_gate") and "tracked" in g), None)
+        try:
+            params = json.loads(p.get("experiment_parameters") or "")
+            ok = isinstance(params, dict)
+        except ValueError:
+            ok = False
+        if gate is None or not ok:
+            note = "experiment refused: name a tracked gate and give its parameters as a JSON object"
+        else:
+            r = self.tracked_gate(gate, "round-%d-experiment" % n, params)
+            note = "experiment on %s with %s: engineering %s\n%s" % (
+                gate["name"], json.dumps(params), r.get("engineering"), r["tail"][-3000:])
+        self.experiments.append(note)
+        self.log("experiment", round=n, note=note[:500])
+        return note.splitlines()[0]
 
     def over_budget(self):
         b = self.c["budget"]
@@ -234,6 +391,8 @@ class Run:
             return "rounds exhausted (%d)" % b["rounds"]
         if self.cost >= b["usd"]:
             return "dollar budget exhausted ($%.2f of $%.2f)" % (self.cost, b["usd"])
+        if any("tracked" in g for g in self.c["gates"]) and self.licensed >= b["licensed_jobs"]:
+            return "licensed-job budget exhausted (%d runs)" % b["licensed_jobs"]
         if (self.clock() - self.started) / 60.0 >= b["minutes"]:
             return "time budget exhausted (%d min)" % b["minutes"]
         return None
@@ -271,6 +430,9 @@ class Run:
                 entry["outcome"] = "worker stopped"
                 return self.fail("worker-stop", p.get("stop_reason") or "the worker stopped", last,
                                  question=p.get("question") or None)
+            if p["action"] == "experiment":
+                entry["outcome"] = self.experiment(p, n)
+                continue
             names, diff, violation = self.scope()
             self.log("scope", files=names, violation=violation)
             if violation == "no change":
@@ -294,7 +456,7 @@ class Run:
     def summary_facts(self):
         final = next((r["proposal"] for r in reversed(self.rounds) if r.get("proposal")), None) or {}
         return dict(run=self.id, branch=self.branch, worktree=self.wt, base=self.base,
-                    rounds=len(self.rounds), cost_usd=round(self.cost, 2),
+                    rounds=len(self.rounds), cost_usd=round(self.cost, 2), licensed_jobs=self.licensed,
                     minutes=round((self.clock() - self.started) / 60.0, 1),
                     observations=final.get("observations", []), hypotheses=final.get("hypotheses", []),
                     summary=final.get("summary", ""))

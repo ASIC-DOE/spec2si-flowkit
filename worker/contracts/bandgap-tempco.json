@@ -1,0 +1,24 @@
+{
+ "schema": 1,
+ "id": "bandgap-tempco",
+ "kind": "diagnosis",
+ "goal": "The tracked bandgap DC run (tsmc28, deployment/bnl/tracked_job.py) fails its tempco-reported check: its result, bandgap_dc.json, does not carry the box tempco. Diagnose why from the failure report and the bench, and fix the bench so the result carries the tempco it already computes. Do not change what is computed, how it is computed, or the checks.",
+ "repo": "C:/dev/spec2si-tsmc28",
+ "base": "HEAD",
+ "context": ["analog/engine/char/bandgap_dc.py", "deployment/bnl/tracked_job.py"],
+ "editable": ["analog/engine/char/bandgap_dc.py"],
+ "protected": ["deployment/bnl/*", "deployment/bnl/jobs/*"],
+ "gates": [
+  {"name": "cluster-bandgap", "acceptance": true, "timeout": 2400,
+   "tracked": {"adapter": "deployment/bnl/tracked_job.py",
+               "snapshot_root": "/u/home/smandal/.spec2si/tsmc28/bandgap-dc",
+               "host": "asic7", "work_root": "/u/home/smandal/.spec2si/tsmc28/bandgap-dc/runs",
+               "parameters": {"case": "tt"},
+               "state_dir": "C:/dev/.spec2si-job-state/tsmc28/tasks", "poll_seconds": 20}},
+  {"name": "adapter-tests",
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "deployment/bnl/test_tracked_job.py"],
+   "timeout": 300}
+ ],
+ "budget": {"rounds": 2, "usd": 6.0, "minutes": 90, "per_round_usd": 3.0, "licensed_jobs": 3},
+ "harness": {"name": "claude"}
+}

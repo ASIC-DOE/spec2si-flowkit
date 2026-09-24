@@ -29,7 +29,9 @@ def proposal(action="patch", **kw):
     return p
 
 
-class Controller(unittest.TestCase):
+class Fixture(unittest.TestCase):
+    """A tiny repo with a bug, a protected acceptance check and a passing check."""
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="worker-")
         self.addCleanup(tmp.cleanup)
@@ -74,6 +76,8 @@ class Controller(unittest.TestCase):
     def execute(self, script, **budget):
         return Run(self.contract(**budget), self.state, harness=self.harness(script)).execute()
 
+
+class Controller(Fixture):
     def test_fix_in_one_round_is_ready_for_review_on_its_branch(self):
         out = self.execute([({"calc.py": CALC_FIX}, proposal(), 0.5)])
         self.assertEqual("ready-for-review", out["status"])
@@ -145,6 +149,108 @@ class Controller(unittest.TestCase):
             fh.write(CALC_FIX)
         git(self.repo, "commit", "-q", "-am", "already fixed")
         self.assertEqual("nothing-to-do", self.execute([])["status"])
+
+
+#: A stand-in for a repo's tracked_job.py: package makes the directory, deploy
+#: writes the profile and manifest the start reads.
+FAKE_ADAPTER = """import json, os, sys
+a = sys.argv
+out = a[a.index("--output") + 1]
+os.makedirs(out)
+if a[1] == "deploy":
+    for name in ("profile.json", "manifest.json"):
+        with open(os.path.join(out, name), "w") as fh:
+            json.dump({}, fh)
+print(json.dumps({"ok": a[1]}))
+"""
+#: A stand-in for deployment.bnl.jobs.workflow: a start records the request and
+#: whether calc.add is right at that moment; collect reports it, with a failure
+#: report when it is not.
+FAKE_WORKFLOW = """import json, os, sys
+a = sys.argv
+key = a[a.index("--task-key") + 1]
+store = os.environ["FAKE_TRACKER"]
+path = os.path.join(store, key + ".json")
+if a[1] == "start":
+    params = json.load(open(a[a.index("--parameters-file") + 1]))
+    sys.path.insert(0, os.getcwd())
+    import calc
+    json.dump(dict(parameters=params, good=calc.add(2, 3) == 5), open(path, "w"))
+    print(json.dumps({"observation": "submitted", "task_key": key}))
+else:
+    r = json.load(open(path))
+    out = dict(observation="done", evidence="tracker-verified", job_id="job-" + key,
+               engineering="pass" if r["good"] else "fail")
+    if not r["good"]:
+        report = os.path.join(store, key + "-failure.md")
+        open(report, "w").write("# Failure report\\n\\nFailed check: `sum/tt` (add(2, 3) != 5)\\n")
+        out.update(failure_report=report, failed_checks=["sum/tt"])
+    print(json.dumps(out))
+"""
+
+
+class TrackedGates(Fixture):
+    def setUp(self):
+        super().setUp()
+        for rel, text in (("adapter.py", FAKE_ADAPTER), ("deployment/__init__.py", ""),
+                          ("deployment/bnl/__init__.py", ""), ("deployment/bnl/jobs/__init__.py", ""),
+                          ("deployment/bnl/jobs/workflow.py", FAKE_WORKFLOW)):
+            os.makedirs(os.path.dirname(os.path.join(self.repo, rel)) or self.repo, exist_ok=True)
+            with open(os.path.join(self.repo, rel), "w") as fh:
+                fh.write(text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "fake tracker")
+        self.tracker = os.path.join(self.root, "tracker")
+        os.mkdir(self.tracker)
+        os.environ["FAKE_TRACKER"] = self.tracker
+        self.addCleanup(os.environ.pop, "FAKE_TRACKER", None)
+
+    def contract(self, **budget):
+        c = dict(schema=1, id="fix-add-cluster", kind="diagnosis", goal="make the cluster sum check pass",
+                 repo=self.repo, editable=["calc.py"], protected=["adapter.py", "deployment/*"],
+                 gates=[dict(name="cluster", acceptance=True, timeout=60,
+                             tracked=dict(adapter="adapter.py", snapshot_root="/remote/snapshots", host="h1",
+                                          work_root="/remote/runs", parameters={"case": "tt"},
+                                          state_dir=os.path.join(self.root, "tasks"), poll_seconds=0)),
+                        dict(name="other", run=[sys.executable, "check_other.py"])],
+                 budget=dict(dict(rounds=3, usd=6.0, minutes=30, per_round_usd=2.0, licensed_jobs=3), **budget))
+        path = os.path.join(self.root, "contract.json")
+        with open(path, "w") as fh:
+            json.dump(c, fh)
+        return load_contract(path)
+
+    def starts(self):
+        return sorted(f for f in os.listdir(self.tracker) if f.endswith(".json"))
+
+    def test_tracked_acceptance_gate_drives_a_diagnosis_to_review(self):
+        out = self.execute([({"calc.py": CALC_FIX}, proposal(), 0.5)])
+        self.assertEqual("ready-for-review", out["status"])
+        self.assertEqual(2, out["licensed_jobs"])          # the baseline run and the checking run
+        self.assertEqual(2, len(self.starts()))
+        self.assertIn("DIAGNOSIS", self.prompts[0])
+        self.assertIn("Failed check: `sum/tt`", self.prompts[0])   # the baseline failure report is the input
+
+    def test_licensed_job_budget_stops_before_another_run(self):
+        out = self.execute([({"calc.py": CALC_FIX}, proposal(), 0.5)], licensed_jobs=1)
+        self.assertEqual("budget", out["stage"])
+        self.assertIn("licensed-job", out["reason"])
+        self.assertEqual(1, len(self.starts()))
+        report = json.load(open(out["failure_report"].replace(".md", ".json")))
+        self.assertEqual("gate-fail", report["cause"]["derived"]["cause"])
+
+    def test_one_discriminating_experiment_then_a_patch(self):
+        experiment = proposal("experiment", experiment_gate="cluster", experiment_parameters='{"case": "ff"}')
+        out = self.execute([({}, experiment, 0.5), ({"calc.py": CALC_FIX}, proposal(), 0.5)])
+        self.assertEqual("ready-for-review", out["status"])
+        self.assertEqual(3, out["licensed_jobs"])
+        params = [json.load(open(os.path.join(self.tracker, f)))["parameters"] for f in self.starts()]
+        self.assertIn({"case": "ff"}, params)
+        self.assertIn("EXPERIMENT RESULTS", self.prompts[1])
+
+    def test_a_contract_must_budget_each_tracked_gate(self):
+        from worker.controller import Refusal
+        with self.assertRaisesRegex(Refusal, "licensed_jobs"):
+            self.contract(licensed_jobs=0)
 
 
 if __name__ == "__main__":

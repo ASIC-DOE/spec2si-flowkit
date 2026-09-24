@@ -17,10 +17,12 @@ import time
 PROPOSAL = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["action", "summary", "observations", "hypotheses", "files_changed", "stop_reason", "question"],
+    "required": ["action", "summary", "observations", "hypotheses", "files_changed", "stop_reason", "question",
+                 "experiment_gate", "experiment_parameters"],
     "properties": {
-        "action": {"type": "string", "enum": ["patch", "stop"],
-                   "description": "patch: the checkout now holds a change to be checked; stop: cannot proceed"},
+        "action": {"type": "string", "enum": ["patch", "stop", "experiment"],
+                   "description": "patch: the checkout now holds a change to be checked; stop: cannot proceed; "
+                                  "experiment: run one tracked gate with other parameters (diagnosis)"},
         "summary": {"type": "string", "description": "what was done or found, in two or three sentences"},
         "observations": {"type": "array", "items": {"type": "string"},
                          "description": "facts seen directly (test output, file contents), each one sentence"},
@@ -30,6 +32,9 @@ PROPOSAL = {
         "stop_reason": {"type": "string", "description": "if action is stop: why; else empty"},
         "question": {"type": "string",
                      "description": "if action is stop: the question the engineer must answer; else empty"},
+        "experiment_gate": {"type": "string", "description": "if action is experiment: the tracked gate; else empty"},
+        "experiment_parameters": {"type": "string",
+                                  "description": "if action is experiment: its parameters as a JSON object; else empty"},
     },
 }
 
@@ -110,7 +115,7 @@ def run(name, prompt, cwd, budget_usd, timeout, record_dir, model=None):
             result["error"] = "no structured last message (rc %s): %s" % (proc.returncode, stderr[-300:])
             return result
     missing = [k for k in PROPOSAL["required"] if k not in result["proposal"]]
-    if missing or result["proposal"].get("action") not in ("patch", "stop"):
+    if missing or result["proposal"].get("action") not in ("patch", "stop", "experiment"):
         result["error"] = "proposal does not match the schema: missing %s" % missing
         return result
     result["ok"] = True
