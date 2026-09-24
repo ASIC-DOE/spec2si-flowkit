@@ -242,6 +242,20 @@ print(json.dumps(TaskStore(sys.argv[1]).start(w, "request-one", json.loads(sys.a
         self.assertIn("declared source changed since packaging", result.stdout)
         self.assertEqual([], list(state.rglob("task.json")) if state.exists() else [])
 
+    def test_cli_names_mangled_parameters(self):
+        repo = self.root / "params-repo"; repo.mkdir()
+        subprocess.run(["git", "-C", str(repo), "init"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = self.root / "profile.json"; p.write_text(json.dumps(profile()))
+        m = self.root / "manifest.json"; m.write_text(json.dumps(dict(files={}, external={})))
+        for bad in ("{case:a}", "[1, 2]"):
+            result = subprocess.run([sys.executable, "-B", "-m", "jobs.workflow", "start", "--profile", str(p),
+                                     "--state-dir", str(self.root / "param-state"), "--task-key", "params",
+                                     "--repo", str(repo), "--manifest", str(m), "--parameters", bad],
+                                    stdout=subprocess.PIPE, universal_newlines=True, timeout=30)
+            self.assertEqual(2, result.returncode)
+            self.assertIn("--parameters", result.stdout)
+            self.assertNotIn("cannot read/write workflow state", result.stdout)
+
     def test_cli_requires_durability_and_can_list_across_processes(self):
         p = self.root / "profile.json"
         p.write_text(json.dumps(profile()))

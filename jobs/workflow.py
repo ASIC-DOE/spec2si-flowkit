@@ -46,6 +46,17 @@ def absolute(value):
             and ".." not in value.split("/") and posixpath.normpath(value) == value)
 
 
+def parse_parameters(text):
+    """--parameters as a JSON object. A shell that mangles the quoting (PowerShell
+    turns '{"case":"tt"}' into {case:tt}) raised a bare ValueError, which the CLI
+    reported as "cannot read/write workflow state"; say what is actually wrong."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        raise ContractError("--parameters is not valid JSON (check the shell's quoting): %r" % text[:120])
+    require(isinstance(value, dict), "--parameters must be a JSON object")
+    return value
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True,
                                     separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -308,7 +319,7 @@ def main(argv=None):
                 store.require_external(args.repo)
                 with open(args.manifest, encoding="utf-8") as fh:
                     manifest = json.load(fh)
-                result = store.start(workflow, args.task_key, json.loads(args.parameters),
+                result = store.start(workflow, args.task_key, parse_parameters(args.parameters),
                                      bind_source(args.repo, manifest), digest(manifest), args.host,
                                      os.path.abspath(args.profile))
             else:
