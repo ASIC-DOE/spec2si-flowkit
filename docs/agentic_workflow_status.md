@@ -21,8 +21,8 @@ rather than the study. Each entry names the evidence it rests on.
 |---|---|---|
 | §9.1 shared package (WP0–WP5) | **Built** | `jobs/workflow.py`, `state.py`, `adapter.py`, `pilot.py`, `smoke.py`, `bin/evidence.py`; `integrations/cluster_jobs/`; [WP5](job_tracker_wp5.md) |
 | §9.1 consumer pilots | **Built** in 3 of 4: tsmc28 (ADC normal mode), xt011 (buffer characterization), sky130 (OTA schematic) | each consumer's `docs/tracked_jobs.md` / `docs/tracked_adc_migration.md`; xt011's first job correctly reported an engineering failure (5 of 15 fits linear) |
-| §9.1 tsmc65 | Code **vendored** 2026-09-24 (`0c534a5e`); activation in progress | the report names its `dig_flows/run.py` parent/attach path as the first pilot |
-| §9.1 operational gates | **Not run anywhere** | harness canaries, the ten-request behavioral acceptance (every `activation_matrix.json` is empty) and a licensed representative job |
+| §9.1 tsmc65 | **Activated** 2026-09-24 for the digital smoketest synthesis (`f5145e4b`) | licensed job pass 5/5, and it agrees with the native report; tsmc65 `docs/tracked_jobs.md` |
+| §9.1 operational gates | **Run in tsmc65** (Claude Code): canaries pass, a licensed job passes, and ten ordinary requests pass with two incomplete answers. Not run in tsmc28, xt011 or sky130; Codex not tested | tsmc65 `docs/tracked_jobs.md` |
 | §6.3 lost-response reconciliation | **Open** | `Transport.run` has no caller request key, so an ambiguous submission stops as `submission-unknown` |
 | §8 baseline and ablation (A–D) | **Not started** | no measurement of current chat; no B-versus-C comparison |
 | §9.2 bounded autonomous worker | **Not started** | no controller or ledger in any repo |
@@ -30,6 +30,19 @@ rather than the study. Each entry names the evidence it rests on.
 | §9.4 numeric and digital regression lanes | **Not started** | no Optuna or SymbiYosys use |
 | §6.5 memory | Session-log harvest **exists** (`browse/runlog.py`, 955 records across four repos); the memory plan it builds on is **missing** | `docs/agent_memory_plan.md` exists in no repository |
 | §5 vendor agent trials | **Not started** | — |
+
+### Changes to shared code made during the tsmc65 activation (2026-09-24)
+
+- **Starts bind to the packaged files** (`2d8427a`), not the whole checkout.
+  Before this, a commit or a session-log rewrite made the cluster refuse a job
+  that had already been submitted.
+- **The workflow CLI reports task-store refusals by their real reason.** A
+  `__main__` class-identity bug had hidden them all behind "cannot read/write
+  workflow state".
+- **Pilot profiles run `python3 -B`**, so jobs no longer write `__pycache__`
+  into the snapshot.
+- **The hook sees through configured launch wrappers and `tcsh -c`**
+  (`64e0946`). A project also sets its hosts and argument prefixes.
 
 ## 2. Where each checkout stood (2026-09-24)
 
