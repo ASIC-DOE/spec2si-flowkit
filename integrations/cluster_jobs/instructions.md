@@ -25,6 +25,9 @@ for the mechanical causes only (the judgement causes are the user's), and
 `--question` for what the next exploration round must answer. `failures` lists the
 open reports.
 
+From PowerShell, write the request to a small JSON file and pass `--parameters-file <file>`
+instead of quoting JSON in `--parameters`; PowerShell mangles the quotes.
+
 Use `collect` before reporting results. Report execution state, artifact evidence
 and engineering verdict separately. An exit-zero job or verified artifact hashes
 do not establish a design pass. Use collect's validated engineering verdict and

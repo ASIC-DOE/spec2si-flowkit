@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3), and condition A of §8 is measured; next is the §9.2 worker built around failure reports (§4.11). Includes the commands, paths, tooling and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-24 and the exact next actions, in order. The tracked-job tracker is active and accepted in all four consumers under Claude Code and Codex, with Codex hook trust persisted, and submission is duplicate-safe (§6.3), and condition A of §8 is measured; the §9.2 worker is built (2 of 10 attempts); next are diagnosis contracts and tracked-job gates. Includes the commands, paths, tooling and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -55,22 +55,21 @@ consumers. Evidence is in each repo's guide and in the status survey.
 the §8 condition-A baseline ([agentic_baseline.md](agentic_baseline.md)); and the
 study's new §4.11 (exploration → implementation cycles, failure reports); and
 structured failure reports for tracked jobs (`jobs/failure.py`: `collect` writes
-them, `report` records judgement, `failures` lists the open ones).
+them, `report` records judgement, `failures` lists the open ones); and the
+bounded worker (`worker/`) with two merged pilot attempts.
 Earlier in the session:
 The task id is the tracker's request key; see the
 [WP3 request-key section](job_tracker_wp3.md#tracker-side-request-key-2026-09-24).
 All five profiles were redeployed afterwards.
 
-### 1. The first bounded autonomous worker (study §9.2)
+### 1. More worker attempts (study §9.2)
 
-Diagnosis and maintenance first, using the same adapters and a local ledger.
-Its retries can now rely on request keys (§6.3 is built). Build it to the
-study's §4.11: it implements a decided contract, and when it cannot meet the
-contract it stops with a **structured failure report** (contract and failed
-checks, evidence, attempts and budget, cause class, the question for the next
-exploration round). Build it so that the B-versus-C comparison in
-[the baseline](agentic_baseline.md) can be run on it. The report format exists:
-`jobs/failure.py` (built 2026-09-24); the worker should emit it, not a new one.
+The worker is built (`worker/`, see its README). Two reviewed attempts of ten
+are done, both maintenance. Next: diagnosis contracts whose input is a failure
+report (`jobs/failure.py`), and tracked cluster jobs as gates (package and
+deploy from the worktree, then start/collect under a request key). The
+tsmc28 bandgap tempco item below is a natural one. Then the B-versus-C
+comparison of the [baseline](agentic_baseline.md) on frozen tasks.
 
 ### 2. Re-measure B in ordinary use (from 2026-10-09)
 
@@ -88,9 +87,8 @@ activation and compare with condition A (the baseline's "after" section).
 - **Tempco missing from the bandgap JSON.** tsmc28's `bandgap_dc.json` is
   written before the tempco is computed. Fix it in the bench; it is a packaged
   file, so redeploy afterwards.
-- **Guard argument order.** The guard matches only the flow argument first:
-  `run.py --phase syn smoketest_flow` is not routed. The bench-side refusal
-  covers tsmc28's flows; tsmc65's `run.py` has no such refusal.
+- ~~Guard argument order~~: fixed by worker pilot 1 (`8b8305b`); tsmc65 now
+  denies `run.py --phase syn smoketest_flow`.
 - **"Run it" can reuse a result.** A request to run the check sometimes
   returns a matching earlier result rather than a new run (tsmc28 T1). Decide
   whether the guidance should prefer a fresh run.
@@ -100,9 +98,8 @@ activation and compare with condition A (the baseline's "after" section).
   `.tracker-local/<host>/`, redeploys archive into its `revisions/`), and every
   AGENTS.md says to run on the named host without refusing or asking. The
   tsmc28 ADC deploy now archives the profile it replaces, as `jobs.pilot` does.
-- **PowerShell over-quotes `--parameters`** (`'{\"case\":...}'`). The named
-  refusal makes sessions fix it in one step; a `--parameters-file` or per-key
-  flags would remove the trap.
+- ~~PowerShell over-quotes `--parameters`~~: `--parameters-file` added by
+  worker pilot 2 (`2c9d45c`); AGENTS.md in each consumer says to use it.
 
 ## Commands and paths
 

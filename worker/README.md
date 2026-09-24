@@ -81,6 +81,33 @@ and delete the branch if the change is not wanted.
 - Budgets: every Claude round carries about $0.30 of fixed context cost on
   this machine; allow for it.
 
+## Pilots (reviewed attempts)
+
+Both pilots were backlog items from the agentic-workflow resume page. In each,
+the engineer's side made the decision and wrote the protected acceptance test
+first; the worker implemented it.
+
+| # | Contract | Harness | Rounds | Cost | Time | Outcome |
+|---|---|---|---:|---:|---:|---|
+| 1 | `guard-argument-order`: a route's argument prefix may follow leading options | Claude Code | 1 | $0.53 | 0.7 min | **ready for review**, merged (`8b8305b`); a 10-line helper in `hook.py` |
+| 2a | `parameters-file`: `start --parameters-file` for PowerShell | Codex | 1 | (tokens only) | 1.0 min | **stopped** with a failure report: the prompt told Codex it could run only pytest, and its file reader crashed |
+| 2b | the same, prompt fixed | Codex | 1 | about 414k tokens | 3.3 min | **ready for review**, merged (`2c9d45c`) |
+
+What the pilots showed:
+
+- **The controller's gates, not the worker's claims, decide.** Pilot 1's worker
+  could not run tests (the tool allowance had Bash rules only, and on Windows it
+  used PowerShell) and said so, listing its predictions as unverified
+  hypotheses. The gates then passed. Both shells are allowed now.
+- **A stop is a useful result.** Pilot 2a's worker could not read files and
+  stopped with a report that named the cause; nothing was changed. The fault was
+  in the controller's prompt (a Claude-only instruction), fixed in `ac671a4`.
+- **Reviewing a small, gated diff is quick.** Both patches were minimal and
+  touched only the editable file.
+
+Two reviewed attempts of the study's ten. Next: diagnosis contracts (a failure
+report as the input) and tracked cluster jobs as gates.
+
 ## Limits
 
 - One worker, one repository, one task at a time. Gates are local commands;
