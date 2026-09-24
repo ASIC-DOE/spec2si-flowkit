@@ -125,6 +125,18 @@ def inspect_command(command, cfg, depth=0):
     return denied, workflow, opaque
 
 
+def prefix_after_options(rest, prefix):
+    # The prefix may follow leading options: each earlier argument is an option
+    # or the value directly after one. A positional word before it is another
+    # subcommand, so the search stops there.
+    for i in range(len(rest)):
+        if rest[i:i + len(prefix)] == prefix:
+            return True
+        if not (rest[i].startswith("-") or (i > 0 and rest[i - 1].startswith("-"))):
+            return False
+    return False
+
+
 def inspect_argv(args, cfg, depth):
     if depth > 6:
         return set(), False, True
@@ -140,7 +152,7 @@ def inspect_argv(args, cfg, depth):
                  args[0].replace("\\", "/").endswith("/" + x.replace("\\", "/"))))
                for x in route["executables"]):
             prefixes = route.get("argument_prefixes")
-            if prefixes is None or any(rest[:len(p)] == p for p in prefixes):
+            if prefixes is None or any(prefix_after_options(rest, p) for p in prefixes):
                 return {route["name"]}, False, False
     if exe in ("nohup", "setsid", "start-process", "start-job"):
         if exe == "start-job":
