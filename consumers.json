@@ -27,6 +27,12 @@
    "node": "SkyWater SKY130",
    "path": "C:\\dev\\spec2si-sky130",
    "policy": "analog/specs/flow_policy.json"
+  },
+  {
+   "name": "spec2si-aim",
+   "node": "AIM Photonics silicon photonics (PIC)",
+   "path": "C:\\dev\\spec2si-aim",
+   "policy": "analog/specs/flow_policy.json"
   }
  ],
  "renamed": "ADR-0001: all five repos are spec2si-* as of 2026-08-24, LOCAL DIRECTORY AND GITHUB REMOTE alike -- AIML_ASIC -> spec2si-tsmc65, ONR_ADFT_ASIC -> spec2si-tsmc28, XT011_ASIC -> spec2si-xt011, SPEC2SI_FLOWKIT -> spec2si-flowkit, with spec2si-sky130 added under the convention. GitHub redirects the old names, so a stale clone keeps working; `git remote -v` should nonetheless read spec2si-* everywhere and disagreeing with this file is now DRIFT, not the expected state it was while the remotes lagged. Standing rule: record where a repo IS, never where it is going -- an intended path makes --check-all report MISSING on a healthy repo."
