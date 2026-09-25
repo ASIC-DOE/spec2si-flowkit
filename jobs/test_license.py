@@ -74,9 +74,33 @@ def test_resolve_alias():
           "raw feature passes through with default prefix")
 
 
+def test_lumerical_on_its_own_server():
+    feat, prefer = lic.resolve("interconnect")
+    check(feat == "lumerical_gui" and prefer == "7192@",
+          "interconnect alias resolves to the Ansys feature on 7192@")
+    check(lic.resolve("lumerical_solve") == ("lumerical_solve", "7192@"),
+          "lumerical_solve resolves to 7192@")
+    saved = {k: os.environ.get(k) for k in lic._LM_ENV}
+    try:
+        for k in saved:
+            os.environ.pop(k, None)
+        os.environ["LM_LICENSE_FILE"] = "7183@iolicense2"
+        os.environ["ANSYSLMD_LICENSE_FILE"] = "7192@iolicense2"
+        check(lic.server_from_env("7192@") == "7192@iolicense2",
+              "the Ansys server is found through ANSYSLMD_LICENSE_FILE")
+        check("7192@iolicense2" in lic.servers_from_env(),
+              "servers_from_env() lists the Ansys server too")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_server_from_env():
     saved = {k: os.environ.get(k) for k in
-             ("CDS_LIC_FILE", "LM_LICENSE_FILE", "ALL_LICENSE_FILES")}
+             lic._LM_ENV}   # ALL of them: a set var left behind breaks "no env"
     try:
         for k in saved:
             os.environ.pop(k, None)
@@ -99,7 +123,7 @@ def test_server_from_env():
 
 def test_seats_no_server_is_none():
     saved = {k: os.environ.get(k) for k in
-             ("CDS_LIC_FILE", "LM_LICENSE_FILE", "ALL_LICENSE_FILES")}
+             lic._LM_ENV}   # ALL of them: a set var left behind breaks "no env"
     try:
         for k in saved:
             os.environ.pop(k, None)

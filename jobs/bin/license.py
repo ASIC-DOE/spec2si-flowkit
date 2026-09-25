@@ -40,9 +40,21 @@ FEATURES = {
     "xcelium_dms": ("Xcelium_SC_DMS_Option", "7183@"),
     # calibre feature strings vary by kit; pass the exact feature name
     # through (default server prefix below) until confirmed.
+    # Ansys Lumerical, on its OWN server (7192@iolicense2, ansyslmd) -- an
+    # eighth server, not one of the seven below. Confirmed 2026-09-25 via
+    # lmstat -a (spec2si-aim WP3): ONE seat of each, version 2025.1031. A
+    # batch INTERCONNECT run checks out lumerical_gui and a solve checks out
+    # lumerical_solve, so "interconnect" names the one that gates a batch run.
+    "interconnect": ("lumerical_gui", "7192@"),
+    "lumerical_gui": ("lumerical_gui", "7192@"),
+    "lumerical_solve": ("lumerical_solve", "7192@"),
 }
 
-_LM_ENV = ("CDS_LIC_FILE", "LM_LICENSE_FILE", "ALL_LICENSE_FILES")
+#: Where the tool env names its license servers. ANSYSLMD_LICENSE_FILE is
+#: Ansys's own variable; without it the Lumerical server is invisible to
+#: `servers_from_env()`, and a job waiting on the one Lumerical seat would be
+#: reported as a hang rather than WAITING_LICENSE.
+_LM_ENV = ("CDS_LIC_FILE", "LM_LICENSE_FILE", "ALL_LICENSE_FILES", "ANSYSLMD_LICENSE_FILE")
 _TOTALS = re.compile(r"Total of (\d+) licenses? issued;\s+"
                      r"Total of (\d+) licenses? in use")
 
