@@ -163,8 +163,13 @@ def _consumer_roots(root):
     return out
 
 
+#: `_sibling`'s answer for a same-family repo that is not cloned beside this one
+UNCLONED = "uncloned"
+
+
 def _sibling(root, rel):
-    """Resolve a CROSS-REPO path. True = found, False = repo gone, None = n/a.
+    """Resolve a CROSS-REPO path. True = found, False = repo gone, None = n/a,
+    UNCLONED = a `spec2si-*` sibling this machine does not have.
 
     ⭐ These five repos cite each other constantly, and the citations are
     exactly what ADR-0001's rename broke: `AIML_ASIC/docs/threat_model.md` and
@@ -188,10 +193,20 @@ def _sibling(root, rel):
     cand = os.path.join(parent, head)
     if os.path.isdir(cand):
         return os.path.exists(os.path.join(cand, rest))
-    # a sibling of the same family that simply is not cloned here says nothing
+    # A sibling of the same family that simply is not cloned here says nothing.
+    # ⚠ It used to return None, which `audit` reads as "not cross-repo" and
+    # reports as a plain missing path -- so every correct `spec2si-*/...`
+    # citation failed in CI, where no sibling is ever cloned, and in any
+    # scratch worktree. The renamed-repo case above is unaffected: an old
+    # name is not `spec2si-*`, so it still comes back False and still gates.
     if head.startswith("spec2si-"):
-        return None
+        return UNCLONED
     return False
+
+
+#: a name no doc, no rule and no build writes -- probed under each top-level
+#: directory to find prefixes that `.gitignore` swallows wholesale
+_SENTINEL = "claims-gate-probe-no-such-file"
 
 
 def _raw_ignored(root, rels):
@@ -224,7 +239,10 @@ def _ignored(root, rels):
     Asked in ONE batch through `check-ignore --stdin`; a per-path call costs a
     process each and this runs over thousands of claims.
     """
-    if not rels or not os.path.isdir(os.path.join(root, ".git")):
+    # ⚠ `exists`, not `isdir`: in a `git worktree` (and a submodule) `.git` is
+    # a FILE pointing at the real one, and `isdir` skipped the probe there --
+    # every deliberately ignored NDA card came back as a GATING finding.
+    if not rels or not os.path.exists(os.path.join(root, ".git")):
         return frozenset()
     # ⛔⛔ A PREFIX THAT IS ITSELF IGNORED MATCHES EVERYTHING. `work/` is
     # ignored wholesale in every port, so probing `work/<claim>` answered
@@ -232,9 +250,19 @@ def _ignored(root, rels):
     # to a green 0/0 PASS in one edit, which is precisely the green-gate-over-
     # a-wrong-artifact failure this whole gate exists to catch. Probe only
     # under directories git actually tracks.
+    #
+    # ⛔ And ask it of a CHILD, not of the directory. xt011 TRACKS files under
+    # `work/` (force-added) while `.gitignore` still says `work/`, so git calls
+    # `work` itself "not ignored" -- it holds tracked content -- yet ignores
+    # every `work/<claim>`, and the gate read 17 gating findings as a clean
+    # PASS. A prefix under which a name nobody wrote is ignored would swallow
+    # any claim, so that is the test, and it covers the wholly-ignored case too.
     tops = [d for d in os.listdir(root)
             if os.path.isdir(os.path.join(root, d)) and not d.startswith(".")]
-    tops = [t for t in tops if t not in _raw_ignored(root, tops)]
+    sentinel = {"{}/{}".format(t, _SENTINEL): t for t in tops}
+    blind = set(sentinel[s] for s in _raw_ignored(root, list(sentinel))
+                if s in sentinel)
+    tops = [t for t in tops if t not in blind]
     probe, origin = [], {}
     for rel in sorted(rels):
         for cand in [rel] + ["{}/{}".format(t, rel) for t in tops]:
@@ -395,7 +423,7 @@ def audit(root):
                    for p in ports):
                 continue                 # a path the registered ports have
             sib = _sibling(root, rel)
-            if sib is True:              # resolved in a neighbouring repo
+            if sib is True or sib == UNCLONED:   # resolved, or unanswerable
                 continue
             if sib is False:             # names a repo that is not there
                 findings.append((rel_doc, genre, "path",
@@ -475,6 +503,7 @@ def self_test():
     global MNT
     tmp = tempfile.mkdtemp(prefix="claims-selftest-")
     mnt = tempfile.mkdtemp(prefix="claims-selftest-mnt-")
+    sep = tempfile.mkdtemp(prefix="claims-selftest-sep-")
     saved_mnt = MNT
     try:
         os.makedirs(os.path.join(tmp, "engine"))
@@ -494,6 +523,22 @@ def self_test():
         _, f_good = audit(tmp)
         if f_good:
             print("SELF-TEST FAIL: clean corpus produced findings: %r" % (f_good,))
+            return 1
+
+        # ⭐ CROSS-REPO CITATIONS, both halves. A `spec2si-*` sibling that is
+        # not cloned beside this tree is unanswerable and must stay silent (CI
+        # never has one); an old-style repo name that is not there is the
+        # ADR-0001 rename rot and must still gate.
+        with open(os.path.join(tmp, "sib.md"), "w", encoding="utf-8") as fh:
+            fh.write(fm.format("guide") + "# sib\n\nSee "
+                     "`spec2si-claims-selftest-absent/docs/x.md` and "
+                     "`CLAIMS_SELFTEST_GONE/docs/x.md`.\n")
+        _, f_sib = audit(tmp)
+        os.remove(os.path.join(tmp, "sib.md"))
+        if [x.split()[0] for _d, _g, _k, x in f_sib] != \
+                ["CLAIMS_SELFTEST_GONE/docs/x.md"]:
+            print("SELF-TEST FAIL: an uncloned spec2si-* sibling must be "
+                  "silent and a gone old-style repo must gate: %r" % (f_sib,))
             return 1
 
         # ⭐ A DRIVE-LETTER `cd` MUST RESOLVE. The vendored guides say
@@ -574,19 +619,57 @@ def self_test():
                     print("SELF-TEST FAIL: an ignored top-level dir blinded "
                           "the ignore probe -- findings vanished: %r" % (f_ig,))
                     return 1
+                # ...and the xt011 shape: `work/` still ignored, but holding a
+                # FORCE-ADDED tracked file, so git calls `work` itself not
+                # ignored while swallowing every `work/<claim>`.
+                with open(os.path.join(tmp, "work", "keep.sh"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write("")
+                subprocess.run(["git", "-C", tmp, "add", "-f",
+                                "work/keep.sh"], **q)
+                _, f_tr = audit(tmp)
+                if not any(k == "path" for _d, _g, k, _x in f_tr):
+                    print("SELF-TEST FAIL: an ignored `work/` with a tracked "
+                          "file in it blinded the ignore probe: %r" % (f_tr,))
+                    return 1
+
+            # ⭐ THE PROBE MUST RUN WHERE `.git` IS A FILE (a worktree, a
+            # submodule). `--separate-git-dir` makes one with no commit needed.
+            # A deliberately ignored card named in a guide is out of scope, so
+            # this corpus must come back clean -- and did not, before.
+            repo = os.path.join(sep, "repo")
+            if subprocess.run(["git", "init", "--separate-git-dir",
+                               os.path.join(sep, "meta"), repo],
+                              **q).returncode == 0:
+                with open(os.path.join(repo, ".gitignore"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write("secret/\n")
+                with open(os.path.join(repo, "card.md"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write(fm.format("guide") + "# card\n\nThe card "
+                             "`secret/card.json` is never committed.\n")
+                subprocess.run(["git", "-C", repo, "add", "-A"], **q)
+                n_sep, f_sep = audit(repo)
+                if n_sep != 1 or f_sep:
+                    print("SELF-TEST FAIL: with `.git` a file, an ignored "
+                          "path was reported: %r" % (f_sep,))
+                    return 1
         except (OSError, ValueError):
             pass
 
         print("self-test PASS: clean corpus 0 findings; seeded bad flag, bad "
               "path and missing script all caught in a `guide`; a drive-letter "
               "`cd` resolves to a real checkout and not to a missing one; the "
-              "same text as a `log` is reported but does not gate; and a "
-              "wholly-ignored `work/` does not blind the ignore probe")
+              "same text as a `log` is reported but does not gate; an uncloned "
+              "`spec2si-*` sibling is silent and a gone repo gates; an ignored "
+              "`work/`, wholly or around a tracked file, does not blind the "
+              "ignore probe; and the probe runs where `.git` is a file")
         return 0
     finally:
         MNT = saved_mnt
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(mnt, ignore_errors=True)
+        shutil.rmtree(sep, ignore_errors=True)
 
 
 def main(argv):

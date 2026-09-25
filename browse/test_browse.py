@@ -1469,11 +1469,20 @@ def test_xor_passes_dash_l_so_a_missing_layer_is_not_silently_empty():
     def fake_run(cmd, **kw):
         seen["cmd"] = list(cmd)
         return real([sys.executable, stub] + list(cmd[1:]), **kw)
+    # ⚠ Force availability exactly as `_run_xor` does. Without it, off Windows
+    # `xor_gds` returns at its availability guard before building any argv,
+    # and this failed as a bare KeyError on every WSL and CI run -- the
+    # assertion below was never reached, so it was never actually checked.
     keep, tools.subprocess.run = tools.subprocess.run, fake_run
+    keep_avail, tools.xor_available = tools.xor_available, lambda: True
+    keep_bin, tools.XOR_BIN = tools.XOR_BIN, sys.executable
     try:
-        tools.xor_gds(a, b)
+        got = tools.xor_gds(a, b)
     finally:
         tools.subprocess.run = keep
+        tools.xor_available = keep_avail
+        tools.XOR_BIN = keep_bin
+    assert "cmd" in seen, "xor_gds never reached the exec: %r" % (got,)
     assert "-l" in seen["cmd"], seen["cmd"]
     # and the paths go through argv, never a shell string
     assert seen["cmd"][2] == a and seen["cmd"][3] == b, seen["cmd"]
@@ -3129,6 +3138,38 @@ def _needs_reader(fn):
     return "server.wavemod" in src or "_psf(" in src or "WAVE_SRC" in src
 
 
+def _skip_reader_tests_without_a_reader():
+    """The SAME skip for pytest that `main()` applies for itself.
+
+    ⚠ pytest never calls `main()`, so on a checkout with no engine reader
+    (the flowkit itself, aim, sky130) `pytest browse/` reported the reader
+    tests as eight FAILURES -- the "whole suite reads as broken" outcome the
+    comment in `main()` exists to prevent, only through the other runner.
+    Each such test is replaced by one raising `unittest.SkipTest`, which
+    pytest reports as a skip and which needs no pytest import (this file is
+    stdlib-only, like everything vendored). `functools.wraps` keeps the
+    original on `__wrapped__`, so `_needs_reader` still reads the real source.
+    """
+    if server.wavemod is not None:
+        return
+    import functools
+    import unittest
+
+    for name, fn in list(globals().items()):
+        if not (name.startswith("test_") and callable(fn)
+                and _needs_reader(fn)):
+            continue
+
+        @functools.wraps(fn)
+        def skipped():
+            raise unittest.SkipTest("no engine transient reader on this "
+                                    "checkout")
+        globals()[name] = skipped
+
+
+_skip_reader_tests_without_a_reader()
+
+
 def main():
     fns = [(n, f) for n, f in sorted(globals().items())
            if n.startswith("test_") and callable(f)]
@@ -3141,7 +3182,8 @@ def main():
         # read as broken on exactly the checkouts that need its other tests
         # most, and not silently passed, which would say the view works
         # where it cannot.
-        if server.wavemod is None and _needs_reader(fn):
+        if server.wavemod is None and \
+                _needs_reader(getattr(fn, "__wrapped__", fn)):
             skipped += 1
             print("  skip %s: no engine transient reader on this checkout"
                   % name)
