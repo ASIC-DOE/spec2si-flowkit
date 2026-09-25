@@ -4,7 +4,7 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-11
+updated: 2026-09-25
 summary: Five steps to stand up a new process port: register it, vendor the shared core, declare a status for every policy rule, add a docs config, and run the two gates.
 -->
 
@@ -31,12 +31,20 @@ register second.
 ## 2. Vendor the shared core
 
 `sync.py` lives in the flowkit and vendors *out* of it, so run it from
-there — there is no copy of it in a port:
+there — there is no copy of it in a port. Python runs under WSL on the
+Windows box, so spell both paths the WSL way:
 
 ```bash
-cd C:\dev\spec2si-flowkit
-python3 sync.py --to C:\dev\spec2si-<node>
+cd /mnt/c/dev/spec2si-flowkit
+python3 sync.py --to /mnt/c/dev/spec2si-<node>
 ```
+
+⛔ **Not `C:\dev\spec2si-<node>` typed into bash.** Bash strips the
+unquoted backslashes, the result no longer looks like a Windows path, and
+it used to be taken as a directory *relative to the flowkit* — the whole
+vendored tree landed inside the flowkit checkout, every line reporting
+success. `--to` now refuses any destination that is not an existing git
+checkout, so create the repo (`git init`, or clone it) before this step.
 
 That copies the node-agnostic files byte-identically: the flow policy and
 its conformance test, the docmeta genre vocabulary, the documentation model

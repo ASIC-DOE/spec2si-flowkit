@@ -4,7 +4,7 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-11
+updated: 2026-09-25
 summary: Real copies of the node-agnostic core live in every port and are hash-checked. How to update one, what DRIFTED and MISSING mean, and the trap that `--to` overwrites a drifted file without asking.
 -->
 
@@ -23,16 +23,20 @@ copies are hash-checked, the same shape as every other derived artifact here.
 ## Update a port
 
 ```bash
-cd C:\dev\spec2si-flowkit
-python3 sync.py --to C:\dev\spec2si-<node>
+cd /mnt/c/dev/spec2si-flowkit
+python3 sync.py --to /mnt/c/dev/spec2si-<node>
 ```
+
+Python runs under WSL on the Windows box, so paths are spelled
+`/mnt/c/...`: an unquoted `C:\dev\...` loses its backslashes in bash.
+`--to` refuses a destination that is not an existing git checkout.
 
 ## Ask whether anything drifted
 
 ```bash
-cd C:\dev\spec2si-flowkit
-python3 sync.py --check C:\dev\spec2si-<node>   # one port
-python3 sync.py --check-all                     # every registered consumer
+cd /mnt/c/dev/spec2si-flowkit
+python3 sync.py --check /mnt/c/dev/spec2si-<node>   # one port
+python3 sync.py --check-all                         # every registered consumer
 ```
 
 Each file reports one of three states:

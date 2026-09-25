@@ -8,17 +8,20 @@ is that real copies exist -- so the copies are hash-checked, which is the
 same shape as every other derived artifact here (a staged value no script
 reproduces survives only until it is re-spun).
 
-  python3 sync.py --to C:\\dev\\spec2si-xt011        # vendor / update
-  python3 sync.py --check C:\\dev\\spec2si-xt011     # gate: has the copy drifted?
-  python3 sync.py --check-all                    # every registered consumer
+  python3 sync.py --to /mnt/c/dev/spec2si-xt011     # vendor / update
+  python3 sync.py --check /mnt/c/dev/spec2si-xt011  # gate: has the copy drifted?
+  python3 sync.py --check-all                       # every registered consumer
+
+`--to` writes only into an existing git checkout. A `C:\\dev\\...` spelling
+is accepted too, but typed unquoted into WSL bash it loses its backslashes.
 
 Consumers are listed in consumers.json (paths are local to this machine and
 that file is the only thing anyone needs to edit to add a fourth node).
 """
 import hashlib
+import importlib.util
 import json
 import os
-import re
 import shutil
 import sys
 
@@ -314,15 +317,44 @@ def sha256(path):
     return h.hexdigest()
 
 
-def localize(path):
-    """`C:\\dev\\X` -> `/mnt/c/dev/X` when running under WSL, which is where
-    python actually lives on the Windows box. consumers.json records the
-    canonical Windows paths; without this, --check-all silently reports every
-    consumer MISSING, which is the worst possible failure for a drift gate."""
-    if os.path.isdir("/mnt/c") and re.match(r"^[A-Za-z]:[\\/]", path):
-        return "/mnt/{}/{}".format(path[0].lower(),
-                                   path[3:].replace("\\", "/"))
-    return path
+def _load_localize():
+    """The drive-letter mapping, from the ONE copy in `docs/test_claims.py`.
+
+    consumers.json records the canonical Windows paths; without the mapping,
+    --check-all silently reports every consumer MISSING, which is the worst
+    possible failure for a drift gate. It lives in test_claims.py because that
+    file is vendored and must stand alone in each port -- this one never is --
+    so a second copy here would be the only thing that could drift. Loaded by
+    path so the flowkit's `docs/` never has to be a package or on sys.path."""
+    spec = importlib.util.spec_from_file_location(
+        "flowkit_test_claims", os.path.join(HERE, "docs", "test_claims.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.localize
+
+
+localize = _load_localize()
+
+
+def usable_dest(dest):
+    """None when `dest` is a checkout `--to` may write into, else why not.
+
+    ⛔ `--to` CREATES every directory it needs, so a destination that does not
+    exist is not an error it would ever notice -- it is a new tree. On
+    2026-09-25 `--to C:\\dev\\spec2si-aim` was typed into WSL bash, which ate
+    the backslashes; `C:devspec2si-aim` is not a drive-letter path, so it was
+    taken as RELATIVE and the whole vendored list landed in a stray directory
+    inside the flowkit checkout, with every line reporting success. A port is
+    always an existing git repo (register where the repo IS -- consumers.json),
+    so demanding one costs a new node a `git init` and closes that off."""
+    if not os.path.isdir(dest):
+        return "not an existing directory"
+    if not os.path.exists(os.path.join(dest, ".git")):
+        return "not a git checkout (no .git)"
+    if os.path.normcase(os.path.realpath(dest)) == \
+            os.path.normcase(os.path.realpath(HERE)):
+        return "that is the flowkit itself"
+    return None
 
 
 def consumers():
@@ -396,13 +428,21 @@ def check(dest):
 
 def main(argv):
     if "--to" in argv:
-        dest = argv[argv.index("--to") + 1]
+        dest = localize(argv[argv.index("--to") + 1])
+        why = usable_dest(dest)
+        if why:
+            # ASCII only, for the same cp1252 reason as the drift message.
+            print("!! refusing --to {}: {}.\n   --to only writes into an "
+                  "existing git checkout. Under WSL bash spell it "
+                  "/mnt/c/dev/spec2si-<node> -- bash strips the backslashes "
+                  "out of an unquoted C:\\dev\\...".format(dest, why))
+            return 2
         print("vendoring into " + dest)
         vendor(dest)
         return 0
     targets = []
     if "--check" in argv:
-        targets = [argv[argv.index("--check") + 1]]
+        targets = [localize(argv[argv.index("--check") + 1])]
     elif "--check-all" in argv:
         targets = [c["path"] for c in consumers()]
     else:

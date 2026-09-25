@@ -85,17 +85,42 @@ GATING = ("guide", "overview")
 SKIP_GENRES = ("reference",)
 
 
+#: where WSL mounts the Windows drives. A module global, not a literal inside
+#: `localize`, only so the self-test can point it at a fixture tree.
+MNT = "/mnt"
+
+
+def localize(path):
+    """`C:\\dev\\X` -> `/mnt/c/dev/X` when running under WSL, which is where
+    python actually lives on the Windows box; any other path is returned as-is.
+
+    ⭐ THE ONE COPY. `sync.py` imports this rather than keeping its own: it
+    lives in the flowkit beside this file, while this file is vendored and must
+    stand alone in every port, so the dependency can only point this way.
+
+    ⚠ Without it, every Windows-spelled path a doc or a registry names is
+    looked for as a relative directory called `C:` -- the `cd C:\\dev\\
+    spec2si-flowkit` in the vendored guides read as two false GATING findings
+    in every port, and `consumers.json` resolved to no ports at all."""
+    if os.path.isdir(os.path.join(MNT, "c")) and \
+            re.match(r"^[A-Za-z]:[\\/]", path):
+        return "{}/{}/{}".format(MNT, path[0].lower(),
+                                 path[3:].replace("\\", "/"))
+    return path
+
+
 def _resolves_in(root, cwd, rel):
     """True when `rel` exists under a directory a code block `cd`-ed into.
 
-    An absolute `cd` is taken literally. A RELATIVE one is resolved against
+    An absolute `cd` is taken literally -- after `localize`, so a drive-letter
+    `cd` finds the checkout under WSL. A RELATIVE one is resolved against
     the repo root, which is the convention every doc in this family already
     follows -- they write `python3 analog/engine/run.py`, not a path from
     wherever the reader happens to stand. That makes `cd ..\\spec2si-tsmc65`
     resolve to the sibling checkout, which is what the sentence means and
     what a reader would do.
     """
-    cwd = cwd.replace("\\", os.sep)
+    cwd = localize(cwd).replace("\\", os.sep)
     if len(cwd) > 2 and (cwd[1] == ":" or cwd.startswith("/")):
         base = cwd
     else:
@@ -132,7 +157,7 @@ def _consumer_roots(root):
         return []
     out = []
     for c in data.get("consumers", []):
-        p = c.get("path") or ""
+        p = localize(c.get("path") or "")
         if p and os.path.isdir(p):
             out.append(p)
     return out
@@ -447,7 +472,10 @@ def audit(root):
 
 def self_test():
     """Negative control: a gate is not believed until it has been made to fail."""
+    global MNT
     tmp = tempfile.mkdtemp(prefix="claims-selftest-")
+    mnt = tempfile.mkdtemp(prefix="claims-selftest-mnt-")
+    saved_mnt = MNT
     try:
         os.makedirs(os.path.join(tmp, "engine"))
         with open(os.path.join(tmp, "engine", "run.py"), "w",
@@ -467,6 +495,39 @@ def self_test():
         if f_good:
             print("SELF-TEST FAIL: clean corpus produced findings: %r" % (f_good,))
             return 1
+
+        # ⭐ A DRIVE-LETTER `cd` MUST RESOLVE. The vendored guides say
+        # `cd C:\dev\spec2si-flowkit` then `python3 sync.py`, and read
+        # literally under WSL that is a directory named `C:` -- two false
+        # GATING findings in every port. The fixture stands in for `/mnt` and
+        # sits OUTSIDE the corpus, so `_index` cannot find `sync.py` by name
+        # and only the `cd` can make it resolve. The negative control is the
+        # same block pointed at a checkout that is not there: mapping the
+        # drive must not turn into accepting any drive-letter path.
+        os.makedirs(os.path.join(mnt, "c", "dev", "kit"))
+        with open(os.path.join(mnt, "c", "dev", "kit", "sync.py"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("")
+        MNT = mnt
+        drive = fm.format("guide") + \
+            "# drive\n\n```bash\ncd C:\\dev\\{}\npython3 sync.py --to x\n```\n"
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(drive.format("kit"))
+        _, f_drive = audit(tmp)
+        if f_drive:
+            print("SELF-TEST FAIL: a drive-letter `cd` to a real checkout did "
+                  "not resolve: %r" % (f_drive,))
+            return 1
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(drive.format("gone"))
+        _, f_gone = audit(tmp)
+        if [(k, x) for _d, _g, k, x in f_gone] != [("script", "sync.py")]:
+            print("SELF-TEST FAIL: a drive-letter `cd` to a missing checkout "
+                  "must still report the script: %r" % (f_gone,))
+            return 1
+        os.remove(os.path.join(tmp, "drive.md"))
+        MNT = saved_mnt
+
         with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
             fh.write(bad)
         _, f_bad = audit(tmp)
@@ -517,12 +578,15 @@ def self_test():
             pass
 
         print("self-test PASS: clean corpus 0 findings; seeded bad flag, bad "
-              "path and missing script all caught in a `guide`; the same text "
-              "as a `log` is reported but does not gate; and a wholly-ignored "
-              "`work/` does not blind the ignore probe")
+              "path and missing script all caught in a `guide`; a drive-letter "
+              "`cd` resolves to a real checkout and not to a missing one; the "
+              "same text as a `log` is reported but does not gate; and a "
+              "wholly-ignored `work/` does not blind the ignore probe")
         return 0
     finally:
+        MNT = saved_mnt
         shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(mnt, ignore_errors=True)
 
 
 def main(argv):
