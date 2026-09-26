@@ -165,6 +165,11 @@ if a[1] == "deploy":
     for name in ("profile.json", "manifest.json"):
         with open(os.path.join(out, name), "w") as fh:
             json.dump({}, fh)
+if a[1] == "package":   # the source identity a real package binds: here, calc.py's bytes
+    import hashlib
+    patch = hashlib.sha256(open("calc.py", "rb").read()).hexdigest()
+    with open(os.path.join(out, "source.json"), "w") as fh:
+        json.dump(dict(source=dict(head="h", patch_sha256=patch, untracked_sha256="u")), fh)
 print(json.dumps({"ok": a[1]}))
 """
 #: A stand-in for deployment.bnl.jobs.workflow: a start records the request and
@@ -320,6 +325,32 @@ class TrackedGates(Fixture):
         self.assertEqual(1, len(self.starts()))
         self.assertIn("recorded: add(2, 3) gave -1", self.prompts[0])
         self.assertIn('{"sum":-1}', self.prompts[0])
+
+    def test_b_own_run_on_the_final_source_is_the_judgement(self):
+        import hashlib
+        self.contract()
+        c = self.frozen()
+
+        def plain(name, prompt, cwd, budget, timeout, record_dir, model=None, shell=()):
+            with open(os.path.join(cwd, "calc.py"), "w") as fh:
+                fh.write(CALC_FIX)
+            task = os.path.join(os.path.dirname(cwd), "b-tasks", "request-1")
+            os.makedirs(task)
+            patch = hashlib.sha256(open(os.path.join(cwd, "calc.py"), "rb").read()).hexdigest()
+            with open(os.path.join(task, "task.json"), "w") as fh:
+                json.dump(dict(reference=dict(job_id="job-b1", workspace="/remote/runs/b1"), created_at=1,
+                               source=dict(head="h", patch_sha256=patch, untracked_sha256="u")), fh)
+            with open(os.path.join(task, "collection.json"), "w") as fh:
+                json.dump(dict(task_key="k-1", job_id="job-b1", evidence="tracker-verified", engineering="pass",
+                               reference=dict(workspace="/remote/runs/b1")), fh)
+            return dict(ok=True, text="STATUS: done", cost_usd=0.5, turns=7, tokens=None, seconds=3.0, error=None,
+                        raw="")
+        out = Run(c, self.state, condition="B", plain=plain, fetcher=lambda *a: {"native.json": "{}"}).execute()
+        self.assertEqual("ready-for-review", out["status"])
+        with open(os.path.join(self.state, out["run"], "outcome.json")) as fh:
+            outcome = json.load(fh)
+        self.assertEqual((1, 1), (outcome["b_launches"], outcome["licensed_jobs"]))   # no judging run
+        self.assertEqual(0, len(self.starts()))
 
     def test_condition_b_checks_through_the_tracker_and_is_judged_by_one_more_run(self):
         self.contract()

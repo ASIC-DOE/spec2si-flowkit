@@ -325,13 +325,14 @@ class Run:
         found |= {m.group(0)[:160] for m in re.finditer(r"(?:\.\./){3,}[^\s\"'<>|,;)]*", norm)}
         return sorted(found)
 
-    def gates(self, label):
+    def gates(self, label, reuse_b=False):
         results = []
         for g in self.c["gates"]:
             t0 = self.clock()
             if "tracked" in g:
                 frozen = label == "baseline" and g["tracked"].get("frozen_baseline")
-                results.append(self.frozen_gate(g) if frozen else self.tracked_gate(g, label))
+                reused = self.reuse_b_verdict(g) if reuse_b else None
+                results.append(self.frozen_gate(g) if frozen else reused or self.tracked_gate(g, label))
                 continue
             try:
                 p = subprocess.run(g["run"], cwd=self.wt, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -748,7 +749,7 @@ class Run:
                           b_launches=own)
             return result
         self.c["budget"]["licensed_jobs"] = self.licensed + sum(1 for g in self.c["gates"] if "tracked" in g)
-        last = self.gates("session")
+        last = self.gates("session", reuse_b=True)
         if all(g["passed"] for g in last) and kept:
             _, kept_diff, _ = self.scope()
             result = self.finish("ready-for-review", last, (kept, kept_diff))
@@ -757,6 +758,57 @@ class Run:
         result.update(claimed=claimed, protected_touched=touched, outside_editable=outside,
                       files=kept if kept else [], b_launches=own)
         return result
+
+    def reuse_b_verdict(self, g):
+        """B's own tracked run as the judgement, when it ran on exactly the final source.
+
+        The verdict is the tracker's (tracker-verified evidence, engineering pass or fail), not
+        B's claim, so a second licensed run on the same bytes adds nothing. The final state is
+        packaged (no licence) and its source identity -- head, patch and untracked hashes, the
+        binding every task record carries -- compared with B's collected runs; the latest match
+        wins. No match, or no collected run: None, and the controller runs the judging job.
+        """
+        t = g["tracked"]
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", g["name"])
+        pkg = os.path.join(self.dir, "pkg-final-" + name)
+        rc, _ = self.step(self.py() + [t["adapter"], "package", "--repo", ".", "--output", pkg], 600, "package")
+        try:
+            with open(os.path.join(pkg, "source.json"), encoding="utf-8") as fh:
+                src = json.load(fh)["source"]
+        except (OSError, ValueError, KeyError):
+            return None
+        key = tuple(src.get(k) for k in ("head", "patch_sha256", "untracked_sha256"))
+        best = None
+        for path in glob.glob(os.path.join(self.dir, "b-tasks", "*", "task.json")):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    record = json.load(fh)
+                with open(os.path.join(os.path.dirname(path), "collection.json"), encoding="utf-8") as fh:
+                    collected = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            s_ = record.get("source") or {}
+            if rc == 0 and tuple(s_.get(k) for k in ("head", "patch_sha256", "untracked_sha256")) == key \
+                    and collected.get("evidence") == "tracker-verified" \
+                    and collected.get("engineering") in ("pass", "fail"):
+                if best is None or record.get("created_at", 0) > best[0].get("created_at", 0):
+                    best = (record, collected)
+        if best is None:
+            return None
+        record, collected = best
+        passed = collected["engineering"] == "pass"
+        tail = ("== judged by B's own tracked run on this exact source (tracker-verified; not re-run)\n"
+                + json.dumps({k: collected.get(k) for k in ("task_key", "job_id", "engineering", "checks_passed",
+                                                           "checks_failed", "failed_checks")}, indent=1))
+        workspace = (collected.get("reference") or record.get("reference") or {}).get("workspace")
+        results = (self.fetch(t, record.get("profile_path") or "", workspace, "session-reused-" + name)
+                   if t["fetch"] and workspace else "")
+        self.log("reused", gate=g["name"], task_key=collected.get("task_key"), job_id=collected.get("job_id"),
+                 engineering=collected["engineering"])
+        return dict(name=g["name"], acceptance=g["acceptance"], rc=0 if passed else 1, passed=passed, tracked=True,
+                    reused=True, task_key=collected.get("task_key"), job_id=collected.get("job_id"),
+                    engineering=collected["engineering"], failure_report=collected.get("failure_report"),
+                    seconds=0.0, results=results, log=None, tail=tail)
 
     def b_launches(self):
         """How many cluster jobs condition B launched itself: records in its own task store with a job."""
