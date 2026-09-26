@@ -10,12 +10,12 @@ summary: Where routekit stands after the 2026-08-26 sessions and the exact next 
 
 # RESUME — the routekit workstream
 
-> **2026-09-24, the agentic-workflow plan:** start from
+> **2026-09-26, the agentic-workflow plan:** start from
 > [`docs/agentic_workflow_resume.md`](docs/agentic_workflow_resume.md), section
-> START HERE. The tracker is accepted in all four consumers; the bounded worker
-> (`worker/`) is built with tracked cluster gates and diagnosis contracts, and 3
-> of the 10 reviewed attempts are merged. Next: attempts 4 to 10, then the
-> B-versus-C comparison.
+> START HERE. The tracker is accepted in all four consumers; §9.2 is done: the
+> bounded worker (`worker/`) completed its ten reviewed attempts (no false
+> acceptance, the expected stop, 5 merged). Next: freeze the task set, build the
+> B runner, and run the B-versus-C comparison (ask before the licensed part).
 
 > **2026-09-12, a different workstream:** the artifact browser (`browse/`)
 > and the cluster transport (`jobs/`, landing in each port's deployment area) are vendored
