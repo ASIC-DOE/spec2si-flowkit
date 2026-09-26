@@ -79,7 +79,7 @@ PATTERN_ARG = re.compile(r"\b(grep|egrep|zgrep|pgrep|pkill|awk|sed|jq|echo|print
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?")
 WAIT_TOOLS = ("Monitor", "ScheduleWakeup", "BashOutput", "TaskOutput")
 #: The migrated flows' executables, by repository: the prefilter before a command is put to the hook.
-MIGRATED = {"tsmc65": ("dig_flows/run.py", "run.py", "tracked_job.py"),
+MIGRATED = {"tsmc65": ("dig_flows/run.py", "run.py", "tracked_job.py", "tracked_campaign.py"),
             "tsmc28": ("tracked_adc.py", "adc_cal_bench", "bandgap_dc.py", "tracked_job.py"),
             "xt011": ("run_buf_bench.sh", "launch_buf_bench.sh", "tracked_job.py"),
             "sky130": ("run_schematic.sh", "tracked_job.py")}

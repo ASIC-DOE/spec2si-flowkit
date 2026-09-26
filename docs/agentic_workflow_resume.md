@@ -71,9 +71,10 @@ The frozen sets are `worker/contracts/frozen/` and `worker/contracts/frozen-trac
    look are in [agentic_baseline.md](agentic_baseline.md) ("The after
    measurement"). The interim (2026-09-25/26, tsmc65 only) found that ordinary
    work never touched a migrated flow: it is analog Spectre campaigns, all
-   unmigrated. **Decide before 2026-10-09 whether to migrate a generic tracked
-   Spectre run**; without it the measurement will show B's effect as bounded by
-   migration coverage, which is itself the finding.
+   unmigrated. **Migrated the same day** (owner's decision): Spectre campaigns
+   run tracked in tsmc65 (`tracked_campaign.py`, live canary pass 2/2). A
+   scheduled task runs the measurement on 2026-10-09 09:00 and drafts the result
+   into agentic_baseline.md for review (uncommitted).
 3. **Report upkeep** (below), now with the §8 result to summarize first.
 
 **§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read

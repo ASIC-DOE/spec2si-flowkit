@@ -174,6 +174,16 @@ tracker. The migration candidate this points to is a generic tracked Spectre
 run (a netlist or bench in a work directory, with its scorer), which covers
 most of these campaigns.
 
+**Done the same day** (tsmc65 `e5014ce7`, `b80f79d6`): **Spectre campaigns run
+tracked** (`deployment/bnl/tracked_campaign.py`, profile `.tracker-local/campaign/`):
+one start runs a run list's benches, at most 4 at a time per host, with the
+scorer's deck step when it generates the benches. A live canary (a copy of
+`tha_char`'s buffer AC campaign, two benches) passed 2/2, tracker-verified, with
+every numeric result identical to the campaign's own. The guard cannot recognise a
+campaign started from an ad-hoc script, so the 2026-10-09 measurement should count
+tracked campaign starts against the analog EDA launches that stayed untracked:
+the coverage, not the refusals, is the number to watch.
+
 The opaque share rose because these campaigns build scripts by copying and
 editing earlier ones (`cp` then `sed`), or with `printf`, so their content is
 never in the transcript; they cannot be classified without running them.
