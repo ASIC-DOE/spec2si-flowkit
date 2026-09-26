@@ -126,18 +126,74 @@ today it has no structured form to be counted, found or handed over.
 
 ## The "after" measurement (B in ordinary use)
 
-The tracker became the default in all four consumers on 2026-09-24. Re-run the
-same script on ordinary sessions after two weeks:
+The tracker became the default in all four consumers on 2026-09-24. The plan is
+to re-run the same script on two weeks of ordinary sessions, 2026-09-25 to
+2026-10-08, from **2026-10-09**. `baseline.py` gained what that needs
+(flowkit `e881fef`):
+
+- `--exclude-session ID`: the tracker's own development sessions are not
+  ordinary use. Excluded so far (tsmc65): `498c3173-79ac-4044-97e6-4e763604ae04`
+  (this workstream) and `e0fcea60-308c-4a9b-a6ee-2c29d7205688` (the licence-
+  signature task). Headless runs (worker rounds, B sessions, canaries) leave no
+  transcript or are excluded as `sdk-cli`.
+- `--hook deployment/bnl/tracker_hook.py`: the **migrated flows** are counted by
+  the repo's own deployed guard (every command naming a migrated executable is
+  put to it as a synthetic PreToolUse event): tracked starts and collects,
+  untracked launches the hook refused in the session, and untracked launches
+  that ran (escapes).
+- `cluster_call_hours` and `cluster_calls_over_10min`: time the session sat
+  inside cluster calls. Literal `sleep` saw only a quarter of it: condition A
+  (tsmc65, 25 days) spent **45.5 h** in cluster calls, 13 of them over ten
+  minutes, against 12.2 h of `sleep`.
+
+**Interim look, 2026-09-25 and 26 (two days, as of 16:30 on the 26th while sessions were still running; not the measurement).** Only
+tsmc65 had ordinary sessions (three, all analog engineering: an AFE trim DAC,
+a comparator preamplifier, the ADC driver's capacitor; the script's session
+count of 4 includes an ID-less fragment); tsmc28, xt011 and sky130 had none.
+
+| Measure (tsmc65) | Condition A, 25 days | Interim, 2 days |
+|---|---:|---:|
+| Ordinary sessions | 24 | 3 |
+| EDA launches (detached) | 375 (44) | 34 (1) |
+| Other cluster compute runs | 607 | 40 |
+| Cluster reads, per launch | 5,197, 5.3 | 248, 3.4 |
+| Hours in cluster calls, per day | 45.5, 1.8 | 3.3, 1.7 |
+| `sleep` hours | 12.2 | 1.3 |
+| Kills | 61 | 4 |
+| Opaque scripts, share of cluster calls | 171, 2 % | 99, 19 % |
+| **Migrated flow** (digital smoketest synthesis): tracked starts / refused / ran untracked | — | **0 / 0 / 0** |
+
+**What it says so far.** The ordinary work of these two days never touched a
+migrated flow: every launch was an analog Spectre characterization campaign
+(comparator bias replays, THA characterization, driver capacitor sweeps), run by
+scripts piped over ssh, none of them migrated, so all untracked, as designed.
+The guard was never exercised and nothing escaped it. Unless the flows people
+actually run are migrated, the 2026-10-09 measurement will measure the same
+thing: B's effect on ordinary use is bounded by migration coverage, not by the
+tracker. The migration candidate this points to is a generic tracked Spectre
+run (a netlist or bench in a work directory, with its scorer), which covers
+most of these campaigns.
+
+The opaque share rose because these campaigns build scripts by copying and
+editing earlier ones (`cp` then `sed`), or with `printf`, so their content is
+never in the transcript; they cannot be classified without running them.
+Launches are therefore undercounted in the interim, detached ones most (a
+`nohup` inside a generated script is invisible).
+
+**On 2026-10-09**, per repository (add any further development sessions to the
+exclusions):
 
 ```bash
-python integrations/cluster_jobs/acceptance/baseline.py --repo tsmc65 --since 2026-09-25 --until 2026-10-09
+X="--exclude-session 498c3173-79ac-4044-97e6-4e763604ae04 --exclude-session e0fcea60-308c-4a9b-a6ee-2c29d7205688"
+for r in tsmc65 tsmc28 xt011 sky130; do
+  python integrations/cluster_jobs/acceptance/baseline.py --repo $r --since 2026-09-25 --until 2026-10-09 $X \
+    --hook C:/dev/spec2si-$r/deployment/bnl/tracker_hook.py --json after-$r.json
+done
 ```
 
-Compare, per repository: the tracked share of launches for the migrated flows
-(expected to approach 1), detached untracked launches, reads per launch,
-in-command sleep, kills and repeated launches. Only a handful of flows are
-migrated, so most launches will stay untracked; report the migrated flows
-separately. Exclude trial sessions as above.
+Compare with condition A per repository and per day; report the migrated flows
+separately (tracked share expected to approach 1, escapes 0), and say how much of
+the ordinary work the migrated flows cover.
 
 ## The B-versus-C comparison on frozen tasks
 
