@@ -1,0 +1,60 @@
+{
+ "schema": 1,
+ "id": "f5-codex-tokens",
+ "kind": "maintenance",
+ "goal": "A Codex worker run reports tokens and no price, so its review.md and failure.md read \"$0.00\", which says the run was free. Make the worker's facts carry the total tokens across rounds (`tokens`, None when no round reported any), and have review.md and the failure report's Worker section state \"N tokens\" when no round reported a cost; a Claude run keeps its dollar figure. The acceptance test worker/test_cost_report.py states the decision.",
+ "oracle": "Written before the run (2026-09-26, flowkit 3rd commit of the day). Accept a change in worker/controller.py of a few lines: a token sum in summary_facts, a cost-or-tokens phrase shared by review_markdown and fail(). A change to the harness or to how costs are budgeted is out of scope.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "context": [
+  "worker/controller.py",
+  "worker/test_cost_report.py"
+ ],
+ "editable": [
+  "worker/controller.py"
+ ],
+ "protected": [
+  "worker/test_*.py",
+  "worker/harness.py",
+  "jobs/*"
+ ],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "unittest",
+    "worker.test_cost_report"
+   ],
+   "timeout": 300
+  },
+  {
+   "name": "worker-suite",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "unittest",
+    "worker.test_controller"
+   ],
+   "timeout": 600
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "replay": {
+  "fix": "acbb85d",
+  "oracle_files": []
+ },
+ "frozen": "B-versus-C local task set, frozen 2026-09-26 from worker/contracts/codex-tokens.json"
+}

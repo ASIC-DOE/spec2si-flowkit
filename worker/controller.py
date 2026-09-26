@@ -48,6 +48,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -165,13 +166,20 @@ def matches(path, patterns):
 
 
 class Run:
-    def __init__(self, contract, state_dir, harness=None, clock=time.time, fetcher=None):
+    def __init__(self, contract, state_dir, harness=None, clock=time.time, fetcher=None, condition="C", plain=None):
+        if condition not in ("B", "C"):
+            raise Refusal("condition is B (one ordinary session) or C (the worker)")
+        if condition == "B" and any("tracked" in g for g in contract["gates"]):
+            raise Refusal("condition B runs local gates only so far: a tracked B session launches licensed "
+                          "jobs itself, which needs the owner's go-ahead and a network-enabled harness")
         self.c = contract
+        self.condition = condition
+        self.plain = plain or harness_module.run_plain
         self.fetcher = fetcher or fetch_results
         self.clock = clock
         self.started = clock()
-        self.id = "%s-%s-%s" % (contract["id"], time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.started)),
-                                os.urandom(2).hex())
+        self.id = "%s-%s%s-%s" % (contract["id"], "B-" if condition == "B" else "",
+                                  time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.started)), os.urandom(2).hex())
         self.dir = os.path.join(os.path.abspath(state_dir), self.id)
         os.makedirs(self.dir)
         self.wt = os.path.join(self.dir, "worktree")
@@ -537,6 +545,98 @@ class Run:
 
     # -- the loop ------------------------------------------------------------
     def execute(self):
+        result = self.execute_b() if self.condition == "B" else self.execute_c()
+        self.write_outcome(result)
+        return result
+
+    def write_outcome(self, result):
+        """One uniform record per run for the B-versus-C scoring (study §8)."""
+        rounds = [r for r in self.rounds]
+        tokens = [r["tokens"] for r in rounds if r.get("tokens") is not None]
+        outcome = dict(
+            schema=1, task=self.c["id"], condition=self.condition, harness=self.c["harness"]["name"], run=self.id,
+            status=result.get("status"), stage=result.get("stage"),
+            accepted=result.get("status") == "ready-for-review",
+            claimed=result.get("claimed", "ready-for-review" if result.get("status") == "ready-for-review" else None),
+            gates={g["name"]: g["passed"] for g in (result.get("gates") or [])},
+            files=result.get("files", []), protected_touched=result.get("protected_touched", []),
+            outside_editable=result.get("outside_editable", []),
+            rounds=len(rounds), cost_usd=round(self.cost, 4), tokens=sum(tokens) if tokens else None,
+            licensed_jobs=self.licensed, minutes=round((self.clock() - self.started) / 60.0, 2),
+            outside_paths=(result.get("replay") or {}).get("outside_paths"),
+            failure_report=result.get("failure_report"), harness_version=harness_version(self.c["harness"]["name"]))
+        with open(os.path.join(self.dir, "outcome.json"), "w", encoding="utf-8") as fh:
+            json.dump(outcome, fh, indent=1, sort_keys=True)
+
+    def prompt_b(self):
+        """Condition B's request: what a chat user would type, with the same briefing as C's contract."""
+        c = self.c
+        lines = [c["goal"], ""]
+        lines += ["You are working in a fresh clone of the repository; work from it alone and do not read any "
+                  "other checkout or directory on this machine." if c["replay"] else
+                  "You are working in a git worktree of %s; edit files there only." % c["repo"]]
+        if c["context"]:
+            lines += ["Start from: " + ", ".join(c["context"]) + "."]
+        lines += ["Keep the change to: " + ", ".join(c["editable"]) + ".",
+                  "Do not modify: " + (", ".join(c["protected"]) or "nothing listed") + ".",
+                  "Check your work with:"]
+        lines += ["- " + " ".join(g["run"]) for g in c["gates"]]
+        lines += ["Do not commit or push.", "",
+                  "When you finish, end your answer with one line: `STATUS: done` if the change is complete and "
+                  "the checks pass, or `STATUS: blocked: <what stopped you, and the question you need answered>`."]
+        return "\n".join(lines)
+
+    def execute_b(self):
+        """Condition B: one ordinary session, then the same gates. Scope is measured, not enforced."""
+        gates, broken, done = self.preflight()
+        if broken:
+            return self.fail("baseline", "gates fail before any change: " + ", ".join(broken), gates,
+                             question="The base is broken; fix or choose another base before delegating.")
+        if done:
+            return self.finish("nothing-to-do", gates, None)
+        record_dir = os.path.join(self.dir, "session")
+        os.makedirs(record_dir)
+        h, b = self.c["harness"], self.c["budget"]
+        shell = sorted({" ".join(g["run"][:4] if g["run"][2:3] == ["-m"] else g["run"][:3]) + ":*"
+                        for g in self.c["gates"] if "run" in g})
+        out = self.plain(h["name"], self.prompt_b(), self.wt, b["usd"], b["minutes"] * 60, record_dir, h.get("model"),
+                         shell)
+        self.cost += out.get("cost_usd") or 0.0
+        text = out.get("text") or ""
+        status_lines = [l.strip().strip("`") for l in text.splitlines() if l.strip().strip("`").startswith("STATUS:")]
+        claimed = ("done" if status_lines and status_lines[-1].startswith("STATUS: done") else
+                   "blocked" if status_lines else "none")
+        entry = dict(round=1, error=out.get("error"), cost_usd=out.get("cost_usd"), tokens=out.get("tokens"),
+                     seconds=out.get("seconds"), claimed=claimed,
+                     proposal=dict(summary=text[-1500:], observations=[], hypotheses=[]))
+        if self.c["replay"]:
+            entry["outside_paths"] = self.audit(out.get("raw"))
+        self.rounds.append(entry)
+        self.log("session", **{k: v for k, v in entry.items() if k != "proposal"}, text=text[-3000:])
+        names, diff, violation = self.scope()
+        touched = [n for n in names if matches(n, self.c["protected"])]
+        outside = [n for n in names if not matches(n, self.c["editable"]) and n not in touched]
+        # The oracle is judged as written: restore what the session changed of it before the gates run.
+        for n in touched:
+            in_base = subprocess.run(["git", "-C", self.wt, "cat-file", "-e", "%s:%s" % (self.base, n)],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            if in_base:
+                git(self.wt, "checkout", self.base, "--", n)
+            elif os.path.exists(os.path.join(self.wt, *n.split("/"))):
+                os.remove(os.path.join(self.wt, *n.split("/")))
+        self.log("scope", files=names, protected_touched=touched, outside_editable=outside, violation=violation)
+        last = self.gates("session")
+        kept = [n for n in names if n not in touched]
+        if all(g["passed"] for g in last) and kept:
+            _, kept_diff, _ = self.scope()
+            result = self.finish("ready-for-review", last, (kept, kept_diff))
+        else:
+            result = self.finish("not-accepted", last, None)
+        result.update(claimed=claimed, protected_touched=touched, outside_editable=outside,
+                      files=kept if kept else [])
+        return result
+
+    def execute_c(self):
         gates, broken, done = self.preflight()
         if broken:
             return self.fail("baseline", "gates fail before any change: " + ", ".join(broken), gates,
@@ -681,6 +781,21 @@ class Run:
         return facts
 
 
+_VERSIONS = {}
+
+
+def harness_version(name):
+    """The harness's own version line, recorded with every comparison run (the protocol pins versions)."""
+    if name not in _VERSIONS:
+        exe = harness_module.codex_exe() if name == "codex" else (shutil.which("claude") or "claude")
+        try:
+            p = subprocess.run([exe, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+            _VERSIONS[name] = p.stdout.decode("utf-8", "replace").strip().splitlines()[-1][:80]
+        except (OSError, subprocess.TimeoutExpired, IndexError):
+            _VERSIONS[name] = None
+    return _VERSIONS[name]
+
+
 def fetch_results(host, mode, workspace, paths):
     """Read result files from a job workspace over the tracker's transport -> {path: text or None}.
 
@@ -744,6 +859,8 @@ def main(argv=None):
     r = sub.add_parser("run")
     r.add_argument("--contract", required=True)
     r.add_argument("--state-dir", required=True, help="private directory outside every checkout")
+    r.add_argument("--condition", choices=("B", "C"), default="C",
+                   help="C: the worker (default); B: one ordinary session, judged by the same gates (study §8)")
     s = sub.add_parser("show")
     s.add_argument("--run", required=True)
     a = ap.parse_args(argv)
@@ -756,7 +873,7 @@ def main(argv=None):
         return 0
     try:
         contract = load_contract(a.contract)
-        result = Run(contract, a.state_dir).execute()
+        result = Run(contract, a.state_dir, condition=a.condition).execute()
     except Refusal as exc:
         print(json.dumps(dict(status="refused", reason=str(exc))))
         return 2

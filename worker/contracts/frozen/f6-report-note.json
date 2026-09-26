@@ -1,0 +1,70 @@
+{
+ "schema": 1,
+ "id": "f6-report-note",
+ "kind": "maintenance",
+ "goal": "`jobs.workflow report --task-key K --note TEXT` given alone is refused (\"report needs --cause, --contradicts, --question or --close\"), so evidence cannot be added to an open failure report without re-declaring a cause. Make a note given alone an entry in the report's exploration history (field \"note\", by --by or \"unspecified\") that changes nothing else, show the notes in failure.md under \"For exploration\", and let the CLI accept it. A note given with --cause stays on that declaration, as now. The acceptance test jobs/test_failure_note.py states the decision.",
+ "oracle": "Written before the run (2026-09-26). Accept: failure.declare appends a note history entry when note is given without cause; failure.markdown lists notes; workflow.py's report guard admits --note. The existing test_failure.py must keep passing; a change to CAUSES/MECHANICAL or to who may declare what is out of scope.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "context": [
+  "jobs/failure.py",
+  "jobs/workflow.py",
+  "jobs/state.py",
+  "jobs/test_failure_note.py"
+ ],
+ "editable": [
+  "jobs/failure.py",
+  "jobs/workflow.py",
+  "jobs/state.py"
+ ],
+ "protected": [
+  "jobs/test_*.py"
+ ],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs/test_failure_note.py"
+   ],
+   "timeout": 300
+  },
+  {
+   "name": "jobs-suite",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs",
+    "--ignore=jobs/test_isolated_bundle.py",
+    "--ignore=jobs/test_failure_note.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "codex",
+  "round_timeout": 1500
+ },
+ "replay": {
+  "fix": "1e51c95",
+  "oracle_files": []
+ },
+ "frozen": "B-versus-C local task set, frozen 2026-09-26 from worker/contracts/report-note.json"
+}

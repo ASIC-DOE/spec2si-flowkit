@@ -287,6 +287,62 @@ class TrackedGates(Fixture):
         with self.assertRaisesRegex(Refusal, "licensed_jobs"):
             self.contract(licensed_jobs=0)
 
+    def test_condition_b_refuses_a_tracked_contract_for_now(self):
+        from worker.controller import Refusal
+        with self.assertRaisesRegex(Refusal, "local gates only"):
+            Run(self.contract(), self.state, condition="B")
+
+
+class ConditionB(Fixture):
+    """Condition B of the comparison: one plain session, judged afterwards by the same gates."""
+
+    def session(self, files, text, cost=0.4):
+        self.calls = []
+
+        def plain(name, prompt, cwd, budget, timeout, record_dir, model=None, shell=()):
+            self.calls.append(dict(prompt=prompt, budget=budget, timeout=timeout, shell=list(shell)))
+            for rel, body in files.items():
+                with open(os.path.join(cwd, rel), "w") as fh:
+                    fh.write(body)
+            return dict(ok=True, text=text, cost_usd=cost, turns=5, tokens=None, seconds=2.0, error=None, raw="")
+        out = Run(self.contract(), self.state, condition="B", plain=plain).execute()
+        with open(os.path.join(self.state, out["run"], "outcome.json")) as fh:
+            return out, json.load(fh)
+
+    def test_a_fix_with_a_done_claim_is_accepted(self):
+        out, outcome = self.session({"calc.py": CALC_FIX}, "Fixed add().\nSTATUS: done")
+        self.assertEqual("ready-for-review", out["status"])
+        self.assertEqual(("B", True, "done"), (outcome["condition"], outcome["accepted"], outcome["claimed"]))
+        self.assertEqual(["calc.py"], outcome["files"])
+        self.assertEqual(1, outcome["rounds"])
+        call = self.calls[0]
+        self.assertEqual((6.0, 30 * 60), (call["budget"], call["timeout"]))   # the whole budget, in one session
+        self.assertIn("check_accept.py", call["prompt"])                    # the gate commands are the briefing
+        self.assertIn("STATUS: done", call["prompt"])
+        self.assertTrue(call["shell"])
+
+    def test_editing_the_oracle_is_undone_before_judging_and_the_claim_is_false(self):
+        out, outcome = self.session({"check_accept.py": "print('accept ok')\n"}, "All checks pass.\n`STATUS: done`")
+        self.assertEqual("not-accepted", out["status"])
+        self.assertEqual(["check_accept.py"], outcome["protected_touched"])
+        self.assertEqual(("done", False), (outcome["claimed"], outcome["accepted"]))   # a false acceptance
+        self.assertEqual(ACCEPT, open(os.path.join(out["worktree"], "check_accept.py")).read())
+
+    def test_scope_is_measured_not_enforced(self):
+        out, outcome = self.session({"calc.py": CALC_FIX, "notes.txt": "changed\n"}, "STATUS: done")
+        self.assertTrue(outcome["accepted"])
+        self.assertEqual(["notes.txt"], outcome["outside_editable"])
+
+    def test_a_blocked_answer_is_recorded(self):
+        out, outcome = self.session({}, "I could not find calc.\nSTATUS: blocked: where is add()?")
+        self.assertEqual(("not-accepted", "blocked"), (out["status"], outcome["claimed"]))
+
+    def test_c_writes_the_same_outcome_record(self):
+        out = self.execute([({"calc.py": CALC_FIX}, proposal(), 0.5)])
+        with open(os.path.join(self.state, out["run"], "outcome.json")) as fh:
+            outcome = json.load(fh)
+        self.assertEqual(("C", True, 0.5), (outcome["condition"], outcome["accepted"], outcome["cost_usd"]))
+
 
 class Replay(Fixture):
     """A past fix re-done blind: the workspace holds the fix's parent plus its tests, never the fix."""

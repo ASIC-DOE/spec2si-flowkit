@@ -1,0 +1,71 @@
+{
+ "schema": 1,
+ "id": "f3-mangled-parameters",
+ "kind": "maintenance",
+ "goal": "`jobs.workflow start --parameters` given text that is not a JSON object (PowerShell's quoting turns '{\"case\":\"tt\"}' into {case:tt}; or a JSON array) fails with the generic message \"cannot read/write workflow state\", and sessions went reading source code to find out why. Make it a named refusal: exit code 2, and a message that names --parameters, without the generic state message. The acceptance test test_cli_names_mangled_parameters in jobs/test_state.py states the decision.",
+ "oracle": "Blind replay of 7d71074 (2026-09-24). The real fix adds parse_parameters() in jobs/workflow.py: json.loads under a ContractError naming --parameters and the shell's quoting, and a require() that the value is a dict. Accept any patch that is a named ContractError path of similar size; a catch-all that rewords every ValueError is a scope smell.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "replay": {
+  "fix": "7d71074",
+  "oracle_files": [
+   "jobs/test_state.py"
+  ]
+ },
+ "context": [
+  "jobs/workflow.py",
+  "jobs/test_state.py"
+ ],
+ "editable": [
+  "jobs/workflow.py"
+ ],
+ "protected": [
+  "jobs/test_*.py"
+ ],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs/test_state.py",
+    "-k",
+    "mangled"
+   ],
+   "timeout": 300
+  },
+  {
+   "name": "jobs-suite",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs",
+    "--ignore=jobs/test_isolated_bundle.py",
+    "-k",
+    "not mangled"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, frozen 2026-09-26 from worker/contracts/replay-mangled-parameters.json"
+}

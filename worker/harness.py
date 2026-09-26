@@ -48,6 +48,72 @@ CLAUDE_TOOLS = (["Read", "Edit", "Write", "Glob", "Grep"]
                 + ["Bash(%s)" % c for c in _SHELL_OK] + ["PowerShell(%s)" % c for c in _SHELL_OK])
 
 
+def run_plain(name, prompt, cwd, budget_usd, timeout, record_dir, model=None, shell=()):
+    """Condition B of the B-versus-C comparison: ONE ordinary headless session.
+
+    No schema, no rounds: the request is plain text and the answer is the
+    session's last message. `shell` adds command prefixes to the file tools and
+    the test/git-read commands (the gate commands, so B can run the checks it is
+    told about). Claude records stream-json, so its tool calls can be audited.
+    -> dict(ok, text, cost_usd, turns, tokens, seconds, error, raw).
+    """
+    start = time.time()
+    raw = os.path.join(record_dir, "harness.jsonl")
+    last = os.path.join(record_dir, "last_message.txt")
+    if name == "claude":
+        allowed = CLAUDE_TOOLS + ["%s(%s)" % (tool, c) for c in shell for tool in ("Bash", "PowerShell")]
+        cmd = [shutil.which("claude") or "claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
+               "--no-session-persistence", "--max-budget-usd", "%.2f" % budget_usd, "--allowedTools"] + allowed
+        if model:
+            cmd += ["--model", model]
+        stdin = None
+    elif name == "codex":
+        cmd = [codex_exe(), "exec", "-C", cwd, "--json", "-s", "workspace-write", "--skip-git-repo-check",
+               "-o", last, "-"]
+        if model:
+            cmd[2:2] = ["-m", model]
+        stdin = prompt.encode("utf-8")
+    else:
+        raise ValueError("unknown harness %r" % name)
+    result = dict(ok=False, text="", cost_usd=None, turns=None, tokens=None, seconds=None, error=None, raw=raw)
+    try:
+        with open(raw, "wb") as out, tempfile.TemporaryFile() as err:
+            proc = subprocess.run(cmd, cwd=cwd, input=stdin, stdout=out, stderr=err, timeout=timeout)
+            err.seek(0)
+            stderr = err.read().decode("utf-8", "replace")[-2000:]
+    except subprocess.TimeoutExpired:
+        result.update(seconds=round(time.time() - start, 1), error="harness timeout after %ds" % timeout)
+        return result
+    result["seconds"] = round(time.time() - start, 1)
+    events = []
+    for line in open(raw, encoding="utf-8", errors="replace"):
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    if name == "claude":
+        final = next((e for e in reversed(events) if e.get("type") == "result"), None)
+        if final is None:
+            result["error"] = "no result event (rc %s): %s" % (proc.returncode, stderr[-300:])
+            return result
+        result.update(text=final.get("result") or "", cost_usd=final.get("total_cost_usd"),
+                      turns=final.get("num_turns"))
+        if final.get("subtype") != "success":
+            result["error"] = "session ended %s" % final.get("subtype")
+            return result
+    else:
+        result["tokens"] = sum(int((e.get("usage") or {}).get("input_tokens") or 0)
+                               + int((e.get("usage") or {}).get("output_tokens") or 0)
+                               for e in events if e.get("type") == "turn.completed")
+        try:
+            result["text"] = open(last, encoding="utf-8", errors="replace").read()
+        except OSError:
+            result["error"] = "no last message (rc %s): %s" % (proc.returncode, stderr[-300:])
+            return result
+    result["ok"] = True
+    return result
+
+
 def codex_exe():
     found = glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""), "OpenAI", "Codex", "bin", "*", "codex.exe"))
     return sorted(found, key=os.path.getmtime)[-1] if found else shutil.which("codex")

@@ -1,0 +1,69 @@
+{
+ "schema": 1,
+ "id": "f1-guard-order",
+ "kind": "maintenance",
+ "goal": "In integrations/cluster_jobs/hook.py, make a route's argument_prefixes match not only as the command's first arguments but also after leading options: every argument before the prefix must be an option (a token starting with '-') or the value directly after an option token. A positional word before the prefix still means another subcommand and must stay unrouted. Keep all existing behaviour; the acceptance test integrations/cluster_jobs/test_guard_order.py states the decision.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "context": [
+  "integrations/cluster_jobs/hook.py",
+  "integrations/cluster_jobs/test_guard_order.py",
+  "integrations/cluster_jobs/test_hooks.py"
+ ],
+ "editable": [
+  "integrations/cluster_jobs/hook.py"
+ ],
+ "protected": [
+  "integrations/cluster_jobs/test_hooks.py",
+  "integrations/cluster_jobs/example_config.json"
+ ],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "protects": [
+    "integrations/cluster_jobs/test_guard_order.py"
+   ],
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "integrations/cluster_jobs/test_guard_order.py"
+   ],
+   "timeout": 300
+  },
+  {
+   "name": "hook-suite",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "integrations/cluster_jobs",
+    "--ignore=integrations/cluster_jobs/test_guard_order.py"
+   ],
+   "timeout": 600
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "replay": {
+  "fix": "8b8305b",
+  "oracle_files": []
+ },
+ "frozen": "B-versus-C local task set, frozen 2026-09-26 from worker/contracts/guard-argument-order.json"
+}
