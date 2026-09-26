@@ -192,6 +192,11 @@ activation and compare with condition A (the baseline's "after" section).
   worker pilot 2 (`2c9d45c`); AGENTS.md in each consumer says to use it.
 - ~~`report --note` alone was refused~~: worker attempt 10 (`1e51c95`).
 - ~~Codex runs read "$0.00"~~: worker attempt 9 (`acbb85d`).
+- ~~A refused run reported only "execution failed, traceback 1"~~: the adapter's
+  refusal is named in the failure report (`7ec12e8`; `pilot.run` writes
+  `refusal.json`, `evidence.py` reads it bounded and redacted). Re-vendored and
+  redeployed everywhere (profiles `-013` / `20260926-04`). **Gap:** tsmc28's
+  ADC adapter has its own `run()` and does not write it yet.
 - ~~The licence log signature counted routine checkout lines~~: `0ed1a78`.
   `SIG_LICENSE` counts denials only; a checkout counts only with a failure
   word. The passing Genus job now reads `license 0` (was 9), attempt 8's
