@@ -4,13 +4,13 @@ genre: log
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-24
-summary: Where the agentic workflow plan stands at the end of 2026-09-24 and what to do next. START HERE: the remaining §9.2 work -- seven more reviewed worker attempts (3 of 10 are done and merged), then the B-versus-C comparison on frozen tasks. Everything before it is built and accepted: the tracker in all four consumers under Claude Code and Codex, duplicate-safe submission, failure reports, the condition-A baseline, and the bounded worker with tracked cluster gates and diagnosis contracts. Includes the commands, paths and traps a new session needs.
+updated: 2026-09-26
+summary: Where the agentic workflow plan stands at the end of 2026-09-26 and what to do next. START HERE: the B-versus-C comparison on frozen tasks (study §8). §9.2 is done: ten reviewed worker attempts, 9 ready for review, 5 merged, the expected stop, no false acceptance; the worker gained blind replays, injected-fault bases and fetched results. Everything before it is built and accepted: the tracker in all four consumers under Claude Code and Codex, duplicate-safe submission, failure reports, the condition-A baseline. Includes the commands, paths and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
 
-Last worked **2026-09-24**. Read in this order:
+Last worked **2026-09-26**. Read in this order:
 
 1. this file (where to start);
 2. [the status survey](agentic_workflow_status.md) (what is built against each
@@ -27,104 +27,109 @@ for r in flowkit tsmc65 tsmc28 xt011 sky130; do cd /c/dev/spec2si-$r; git fetch 
 python sync.py --check-all      # from flowkit; routekit / apiref / housekeeping drift is known and not ours
 ```
 
-All five repos were pushed and in sync at the end of 2026-09-24
-(flowkit `7719157`, tsmc65 `40bdc54c`, tsmc28 `db01d1f`, xt011 `305fb66`, sky130 `2c447b5`; branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
+All five repos were pushed and in sync at the end of 2026-09-26
+(flowkit: the commit carrying this page; tsmc65 `89bc2706`, tsmc28 `6f6bbbe`, xt011 `96b8daa`, sky130 `3aa1231`; branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
 
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
 |---|---|---|---|
-| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-009 on asic8, `.tracker-local/` |
-| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-009, ADC snapshot-20260924-07, both on asic7 |
-| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260924-05 on asic7 |
-| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260924-06 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
+| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-010 on asic8, `.tracker-local/` |
+| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-010, ADC snapshot-20260926-01, both on asic7 |
+| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260926-01 on asic7 |
+| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260926-01 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
 
 Codex hook trust is **persisted** in all four consumers, and a canary without
 the bypass flag passes in each. Profiles were all redeployed after flowkit
-`149ea4f`; from now on a change to a vendored test does not make them stale.
+`1e51c95` (worker attempt 10 changed `jobs/failure.py` and `jobs/workflow.py`,
+re-vendored everywhere); a change to a vendored test does not make them stale.
 
 Evidence lives in each repo's guide: tsmc65 `docs/tracked_jobs.md`; tsmc28
 `docs/howto/tracked_bandgap.md` and `docs/tracked_adc_migration.md`; xt011 and
 sky130 `docs/tracked_jobs.md`.
 
-## START HERE: the remaining §9.2 work
+## START HERE: the B-versus-C comparison (study §8)
 
-The bounded worker exists and works: **`worker/`** in flowkit. Read
-[worker/README.md](../worker/README.md) first (design, contracts, tracked gates,
-diagnosis, pilots). The study's §9.2 asks for **ten reviewed attempts** before
-the paired comparison; **three are done, all merged**:
+**§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read
+[worker/README.md](../worker/README.md) first: design, contracts, tracked
+gates, fetched results, blind replays, and the table of attempts. In short:
+9 ready for review, each equivalent to its oracle or to the real fix; 5 merged;
+two stops (a controller fault in 2a, and attempt 4's expected design question);
+no false acceptance, no scope violation; 8 licensed runs, $2.19 of Claude and
+about 2.4M Codex tokens. Coverage: 5 Codex runs, 4 diagnoses, tracked gates in
+tsmc28, xt011, sky130 and tsmc65, one expected stop, two blind replays, two
+injected faults, two real backlog items.
 
-| # | Contract (`worker/contracts/`) | Kind | Harness | Gate | Result |
-|---|---|---|---|---|---|
-| 1 | `guard-argument-order` (flowkit) | maintenance | Claude | local | merged `8b8305b`; 1 round, $0.53 |
-| 2 | `parameters-file` (flowkit) | maintenance | Codex | local | first run stopped (controller prompt fault, fixed `ac671a4`); rerun merged `2c9d45c` |
-| 3 | `bandgap-tempco` (tsmc28) | **diagnosis** | Claude | **tracked cluster** | merged tsmc28 `2ef9455`; 1 round, $0.63, 2 licensed runs |
+### 1. Freeze the task set
 
-### 1. Seven more attempts (4 to 10)
+Every attempt can now be expressed as a **replay contract** (`"replay"`), so
+each task re-runs from the same base with the same oracle:
 
-**Coverage to reach by attempt 10:** at least two more Codex runs, at least two
-more diagnoses, a tracked gate outside tsmc28 (xt011 or sky130), at least one
-task that **should end in a stop**, and at least one **historical replay** (a
-past fix re-done blind). Candidates, roughly in order:
-
-| # | Candidate | Kind / harness | Gate | Expected |
+| Task | Source | Oracle | Gate | Licence per run |
 |---|---|---|---|---|
-| 4 | xt011 BUFTLLVTX1 linearity fail (its failure report is open, with the question already recorded). Editable: the scorer and bench only; protected: the 2 % criterion and the adapter | diagnosis / Codex | tracked (xt011 buffer, under a minute) | **stop**: the fix is a model or criterion decision, which is exploration. A worker that loosens the criterion is a scope violation |
-| 5 | Replay a flowkit fix blind: base = the fix's parent plus the fix's own test (protected). Good ones: `7d71074` (a mangled `--parameters` is a named refusal), `e6d2f6d` (deploy validates the profile before uploading), `149ea4f` (tests are not packaged) | maintenance / Claude | local | pass; compare the patch with the real fix |
-| 6 | The same, a second replay | maintenance / Codex | local | pass |
-| 7 | sky130 OTA: a frozen injected fault on a scratch branch (for example a sign error in `score_schematic.py`'s transfer slope), diagnosed from the tracked run's failure report | diagnosis / Claude | tracked (sky130, seconds) | pass |
-| 8 | tsmc65 smoketest with an injected fault (wrong top or a broken synthesis script), from its failure report | diagnosis / Codex | tracked (tsmc65, about 3 min) | pass |
-| 9–10 | Real backlog items as they appear (the resume page's smaller items, open failure reports: `jobs.workflow failures`) | either | either | review |
+| guard order | replay of `8b8305b` | `integrations/cluster_jobs/test_guard_order.py` | local | 0 |
+| parameters-file | replay of `2c9d45c` | `jobs/test_parameters_file.py` | local | 0 |
+| mangled parameters | `replay-mangled-parameters.json` (`7d71074`) | its test in `jobs/test_state.py` | local | 0 |
+| unpackaged tests | `replay-unpackaged-tests.json` (`149ea4f`) | its test in `jobs/test_pilot.py` | local | 0 |
+| Codex tokens | replay of `acbb85d` | `worker/test_cost_report.py` | local | 0 |
+| report note | replay of `1e51c95` | `jobs/test_failure_note.py` | local | 0 |
+| bandgap tempco | replay of tsmc28 `2ef9455` | the `tempco-reported` check | tracked, asic7, ~1 min | 2 |
+| OTA fault | `ota-injected-fault.json` (sky130 `worker-fault/ota-tail-gate`) | the adapter's checks | tracked, asic7, seconds | 2 |
+| SDC fault | `sdc-injected-fault.json` (tsmc65 `worker-fault/sdc-clock-name`) | the adapter's checks | tracked, asic8, ~3 min | 2 |
+| buffer linearity | `buffer-linearity.json` (xt011; the answer is a **stop**) | the contract's `oracle` | tracked, asic7, <1 min | 1–3 |
 
-**Per attempt:**
+The scratch `worker-fault/*` branches are local only; keep them. Local tasks
+cost nothing but model time. **Size the licensed part before running it:** three
+repeats × two conditions × four tracked tasks is about 48 licensed runs, well
+past the ten at which the owner wants to be asked. Propose a smaller tracked
+set (for example one tracked task, three repeats) and ask.
+
+### 2. Build the B runner
+
+- **C** is the worker on the contract, as now.
+- **B** is an ordinary headless session (`claude -p`, or `codex exec`) in the
+  same blind workspace, given the goal, the context files and the gate
+  commands as a plain request, with the repository's tracker, guides and hooks
+  and **no controller**: no schema, no scope enforcement, no rounds. When it
+  ends, the controller runs the same gates and records scope (measured, not
+  enforced), cost and time. For tracked tasks B launches through the tracker
+  itself, as a chat session would.
+
+A `--condition B` mode in `worker.controller` that reuses preflight (the blind
+workspace), the gates and the review/failure writers is probably the least
+code; `integrations/cluster_jobs/acceptance/run_trials.py` has the session
+plumbing. Pin the harness versions for the whole comparison.
+
+### 3. Score
+
+The same metrics for both conditions, from the baseline's design
+([agentic_baseline.md](agentic_baseline.md), "The B-versus-C comparison on
+frozen tasks"): accepted over attempts, human interventions, elapsed time,
+licensed runs, cost, false acceptances, scope excursions, and
+failure-report completeness for every non-pass.
+
+### Running any worker task (the per-attempt procedure)
 
 1. **Decide and write the oracle first** (the exploration half, done in chat):
-   the acceptance test, or the adapter check a tracked gate will apply. Commit it
-   to the target repo. It must fail on the base.
-2. **Write the contract** in `worker/contracts/<id>.json` (copy a pilot's).
-   The regression gates must pass on the base: exclude the acceptance test and
-   any test that fails on Windows for other reasons
-   (`jobs/test_isolated_bundle.py` is POSIX-only). Budget `licensed_jobs` at
-   least one run per tracked gate, plus one for the baseline.
-3. **Run it** from flowkit, in the background (it can take minutes):
+   the acceptance test, or the adapter check a tracked gate will apply, and the
+   expected outcome in the contract's `oracle` field (the worker never sees it).
+   Commit the test to the target repo. It must fail on the base.
+2. **Write the contract** in `worker/contracts/<id>.json` (copy one). The
+   regression gates must pass on the base: exclude the acceptance test and any
+   test that fails on Windows for other reasons (`jobs/test_isolated_bundle.py`
+   is POSIX-only). Budget `licensed_jobs` at one run per tracked gate plus the
+   baseline. Declare `fetch` for results that hold measured values.
+3. **Run it** from flowkit, in the background (minutes):
    `py -3 -m worker.controller run --contract worker/contracts/<id>.json --state-dir C:/dev/.spec2si-job-state/worker`
-4. **Review.** Read `review.md` and `change.patch` (or `failure.md`) in the run
-   directory. Check the result independently where you can: for a tracked gate,
-   read the passing job's `native.json` on the cluster.
-5. **Merge or not.** In the target repo, `git merge --ff-only worker/<run id>`.
-   `git branch --list` shows a worktree branch with a `+`; strip it. Then
-   `git worktree remove --force <run dir>/worktree`, `git branch -D worker/<run id>`.
-6. **Follow through.** A merged change to a packaged file makes that repo's
-   deployed profile stale: redeploy it (no licence). Re-vendor if it is flowkit
-   code. Update the guide in the same change.
-7. **Record** the row in worker/README.md's pilot table and the count in
-   [the status survey](agentic_workflow_status.md) (§9.2 row).
-
-**Replays need history isolation.** A replay's worker must not see the fix.
-The worktree shares the repository, and the Claude allowance includes
-`git log` and `git show`, so the answer is one command away. Before attempt 5,
-add a contract option that creates the workspace as a fresh clone of the base
-only (for example `git clone --no-local --single-branch` of a scratch branch at
-the base, with no other refs), and drop the git-read rules from the allowance
-for those contracts. Codex's sandbox does not stop a local `git log --all`
-either.
-
-### 2. Then the B-versus-C comparison (study §8)
-
-The design is in [the baseline](agentic_baseline.md) ("The B-versus-C
-comparison on frozen tasks"): implementation rounds only, a frozen task set
-(the pilots' contracts are the seed), three repeats per task and condition,
-fixed harness versions and budgets.
-
-- **C** is the worker on the contract.
-- **B** is a headless chat session (`claude -p`, or `codex exec`) given the
-  same goal, context and gate commands as an ordinary request, with the
-  tracker, guides and hooks but no controller. Its outcome is judged by
-  running the same gates afterwards.
-
-Build a small runner that plays B from a contract, reusing
-`integrations/cluster_jobs/acceptance/run_trials.py`. Score both with the same
-metrics: accepted over attempts, human interventions, elapsed time, licensed
-runs, cost, false acceptances, and failure-report completeness for every
-non-pass.
+4. **Review** `review.md` and `change.patch` (or `failure.md`); for a replay,
+   compare with `fix.patch` and read the audit line; read the worker's
+   observations for leaks the audit cannot see.
+5. **Merge or not.** Worktree runs: `git merge --ff-only worker/<run id>` (rebase
+   it with `--autostash` first if main moved), then
+   `git worktree remove --force <run dir>/worktree` and `git branch -D`.
+   Replay runs live in their own clone: nothing to merge; delete `worktree/`.
+6. **Follow through.** A change to packaged code: re-vendor (flowkit `jobs/`),
+   commit in each consumer, redeploy every profile (no licence), update the
+   guides' "current profile" line.
+7. **Record** it in worker/README.md and the status survey.
 
 ## After §9.2
 
@@ -156,6 +161,19 @@ activation and compare with condition A (the baseline's "after" section).
   tsmc28 ADC deploy now archives the profile it replaces, as `jobs.pilot` does.
 - ~~PowerShell over-quotes `--parameters`~~: `--parameters-file` added by
   worker pilot 2 (`2c9d45c`); AGENTS.md in each consumer says to use it.
+- ~~`report --note` alone was refused~~: worker attempt 10 (`1e51c95`).
+- ~~Codex runs read "$0.00"~~: worker attempt 9 (`acbb85d`).
+- **The licence log signature counts routine checkout lines.** A passing tsmc65
+  Genus run reads `license: 9`, so an early Genus failure would be derived as
+  a licence `tool-error`. Tighten `SIG_LICENSE` in `jobs/bin/report.sh`
+  (success lines out, denials in), test, re-vendor, redeploy.
+- **xt011 buffer linearity is an open design question** for the owner: X1 is
+  slew-limited at 250–520 fF at 160 MHz, so the linear-in-f model (or the 2 %
+  criterion, or the operating envelope) needs deciding. The open report
+  `gate-buffer-x1-20260924` carries the worker's numbers and what they
+  contradict (the scorer's docstring).
+- **Codex's Windows sandbox** sometimes fails shell calls
+  (`helper_unknown_error: apply deny-read ACLs`); only the model reports it.
 
 ## Commands and paths
 
@@ -189,6 +207,12 @@ activation and compare with condition A (the baseline's "after" section).
 
 ### The worker
 
+- **Uncommitted contracts are readable.** A worktree worker can read the main
+  checkout, including a contract's `oracle` text if it names the answer. Keep
+  oracle text to the expected shape, or use a replay (the prompt then names no
+  checkout, and reads outside are audited).
+- **Merging worker changes while other runs are live is safe**: a running
+  controller has already imported its code; the next run picks up the merge.
 - **Every Claude round has a fixed context cost**: about $0.30 in a small
   repo, more in tsmc28 and xt011 (their CLAUDE.md files are large). Budget
   `per_round_usd` above it, or the round ends `error_max_budget_usd`.
