@@ -287,10 +287,66 @@ class TrackedGates(Fixture):
         with self.assertRaisesRegex(Refusal, "licensed_jobs"):
             self.contract(licensed_jobs=0)
 
-    def test_condition_b_refuses_a_tracked_contract_for_now(self):
+    def test_condition_b_with_tracked_gates_needs_claude(self):
         from worker.controller import Refusal
-        with self.assertRaisesRegex(Refusal, "local gates only"):
-            Run(self.contract(), self.state, condition="B")
+        c = self.contract()
+        c["harness"]["name"] = "codex"
+        with self.assertRaisesRegex(Refusal, "needs Claude"):
+            Run(c, self.state, condition="B")
+
+    def frozen(self):
+        report = os.path.join(self.root, "baseline-failure.md")
+        with open(report, "w") as fh:
+            fh.write("# Failure report\n\nFailed check: `sum/tt` (recorded: add(2, 3) gave -1)\n")
+        results = os.path.join(self.root, "baseline-results")
+        os.mkdir(results)
+        with open(os.path.join(results, "native.json"), "w") as fh:
+            fh.write('{"sum": -1}')
+        path = os.path.join(self.root, "contract.json")
+        data = json.load(open(path))
+        data["gates"][0]["tracked"].update(fetch=["native.json"],
+                                           frozen_baseline=dict(report=report, results=results))
+        with open(path, "w") as fh:
+            json.dump(data, fh)
+        return load_contract(path)
+
+    def test_a_frozen_baseline_spends_no_licence_and_is_the_input(self):
+        self.contract()
+        c = self.frozen()
+        out = Run(c, self.state, harness=self.harness([({"calc.py": CALC_FIX}, proposal(), 0.5)]),
+                  fetcher=lambda *a: {"native.json": '{"sum": 5}'}).execute()
+        self.assertEqual("ready-for-review", out["status"])
+        self.assertEqual(1, out["licensed_jobs"])          # the checking run only
+        self.assertEqual(1, len(self.starts()))
+        self.assertIn("recorded: add(2, 3) gave -1", self.prompts[0])
+        self.assertIn('{"sum":-1}', self.prompts[0])
+
+    def test_condition_b_checks_through_the_tracker_and_is_judged_by_one_more_run(self):
+        self.contract()
+        c = self.frozen()
+        seen = {}
+
+        def plain(name, prompt, cwd, budget, timeout, record_dir, model=None, shell=()):
+            seen.update(prompt=prompt, shell=list(shell))
+            with open(os.path.join(cwd, "calc.py"), "w") as fh:
+                fh.write(CALC_FIX)
+            run_dir = os.path.dirname(cwd)                 # B's own launch, as the tracker would record it
+            os.makedirs(os.path.join(run_dir, "b-tasks", "request-1"))
+            with open(os.path.join(run_dir, "b-tasks", "request-1", "task.json"), "w") as fh:
+                json.dump(dict(reference=dict(job_id="job-b1")), fh)
+            return dict(ok=True, text="STATUS: done", cost_usd=0.6, turns=9, tokens=None, seconds=3.0, error=None,
+                        raw="")
+        out = Run(c, self.state, condition="B", plain=plain, fetcher=lambda *a: {"native.json": "{}"}).execute()
+        self.assertEqual("ready-for-review", out["status"])
+        with open(os.path.join(self.state, out["run"], "outcome.json")) as fh:
+            outcome = json.load(fh)
+        self.assertEqual((1, 2), (outcome["b_launches"], outcome["licensed_jobs"]))   # its own + the judging run
+        self.assertEqual(1, len(self.starts()))            # the controller started only the judging run
+        self.assertIn("deployment.bnl.jobs.workflow start", seen["prompt"])
+        self.assertIn("recorded: add(2, 3) gave -1", seen["prompt"])   # the same input as C's first round
+        self.assertIn('{"sum":-1}', seen["prompt"])
+        self.assertIn("py -3 -m deployment.bnl.jobs.workflow:*", seen["shell"])
+        self.assertIn("py -3 adapter.py:*", seen["shell"])
 
 
 class ConditionB(Fixture):

@@ -44,6 +44,7 @@ Standard library only.
 """
 import argparse
 import fnmatch
+import glob
 import hashlib
 import json
 import os
@@ -62,7 +63,8 @@ GATE_OUTPUT_MAX = 6000
 #: Byproducts of running gates, never the worker's change.
 BYPRODUCTS = ("*.pyc", "*/__pycache__/*", "__pycache__/*", ".pytest_cache/*", "*/.pytest_cache/*")
 DIFF_LINES_MAX = 600
-TRACKED_FIELDS = {"adapter", "snapshot_root", "host", "work_root", "parameters", "state_dir", "poll_seconds", "fetch"}
+TRACKED_FIELDS = {"adapter", "snapshot_root", "host", "work_root", "parameters", "state_dir", "poll_seconds", "fetch",
+                  "frozen_baseline"}
 #: A fetched result file: JSON in the job's workspace, never a log. Logs stay on
 #: the cluster (bin/runjob: they may carry model paths); a scorer's result holds
 #: the measured numbers a diagnosis needs and the report deliberately leaves out.
@@ -118,6 +120,18 @@ def load_contract(path):
             require(isinstance(t["fetch"], list) and all(isinstance(p, str) and FETCH_PATH.fullmatch(p)
                                                          and ".." not in p.split("/") for p in t["fetch"]),
                     "tracked fetch lists result .json files relative to the job workspace")
+            fb = t.get("frozen_baseline")
+            if fb is not None:
+                # A recorded baseline run stands in for a fresh one: repeats of a frozen task do not
+                # spend a licence each to learn what is already known to fail.
+                require(isinstance(fb, dict) and set(fb) <= {"report", "results"} and fb.get("report"),
+                        "frozen_baseline fields: report (a failure.md) and results (a directory of fetched files)")
+                here = os.path.dirname(os.path.abspath(path))
+                for k in ("report", "results"):
+                    if fb.get(k):
+                        fb[k] = os.path.normpath(os.path.join(here, fb[k]))
+                require(os.path.isfile(fb["report"]) and (not fb.get("results") or os.path.isdir(fb["results"])),
+                        "frozen_baseline files must exist")
         g.setdefault("timeout", 600)
         g.setdefault("acceptance", False)
         g.setdefault("protects", [])
@@ -169,9 +183,10 @@ class Run:
     def __init__(self, contract, state_dir, harness=None, clock=time.time, fetcher=None, condition="C", plain=None):
         if condition not in ("B", "C"):
             raise Refusal("condition is B (one ordinary session) or C (the worker)")
-        if condition == "B" and any("tracked" in g for g in contract["gates"]):
-            raise Refusal("condition B runs local gates only so far: a tracked B session launches licensed "
-                          "jobs itself, which needs the owner's go-ahead and a network-enabled harness")
+        if condition == "B" and any("tracked" in g for g in contract["gates"]) and \
+                contract["harness"]["name"] != "claude":
+            raise Refusal("condition B with tracked gates needs Claude: a B session launches its own cluster "
+                          "jobs, and Codex's workspace-write sandbox has no network")
         self.c = contract
         self.condition = condition
         self.plain = plain or harness_module.run_plain
@@ -315,7 +330,8 @@ class Run:
         for g in self.c["gates"]:
             t0 = self.clock()
             if "tracked" in g:
-                results.append(self.tracked_gate(g, label))
+                frozen = label == "baseline" and g["tracked"].get("frozen_baseline")
+                results.append(self.frozen_gate(g) if frozen else self.tracked_gate(g, label))
                 continue
             try:
                 p = subprocess.run(g["run"], cwd=self.wt, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -359,16 +375,13 @@ class Run:
             out["tail"] = "not run: licensed-job budget exhausted (%d)" % self.licensed
             out["seconds"] = 0.0
             return out
-        pkg, prof = os.path.join(self.dir, "pkg-" + tag), os.path.join(self.dir, "profile-" + tag)
-        params = os.path.join(self.dir, "params-%s.json" % tag)
-        with open(params, "w", encoding="utf-8") as fh:
-            json.dump(parameters if parameters is not None else t["parameters"], fh)
-        log = []
+        params = self.write_params(t, tag, parameters)
+        prof, log = self.deploy_profile(t, name, tag)
+        if prof is None:
+            out["tail"] = "\n".join(log)[-GATE_OUTPUT_MAX:]
+            out["seconds"] = round(self.clock() - t0, 1)
+            return self.gate_log(out, tag, log)
         steps = [
-            ("package", self.py() + [t["adapter"], "package", "--repo", ".", "--output", pkg], 600),
-            ("deploy", self.py() + [t["adapter"], "deploy", "--repo", ".", "--package", pkg, "--snapshot",
-                                    t["snapshot_root"].rstrip("/") + "/" + name, "--host", t["host"],
-                                    "--work-root", t["work_root"], "--output", prof], 900),
             ("start", self.py() + ["-m", "deployment.bnl.jobs.workflow", "start", "--profile",
                                    os.path.join(prof, "profile.json"), "--state-dir", t["state_dir"],
                                    "--task-key", name, "--repo", ".", "--manifest",
@@ -413,6 +426,42 @@ class Run:
             log.append(results)
         return self.gate_log(out, tag, log)
 
+    def write_params(self, t, tag, parameters=None):
+        params = os.path.join(self.dir, "params-%s.json" % tag)
+        with open(params, "w", encoding="utf-8") as fh:
+            json.dump(parameters if parameters is not None else t["parameters"], fh)
+        return params
+
+    def deploy_profile(self, t, name, tag):
+        """Package the workspace and deploy it to a run-specific snapshot (no licence) -> (profile dir or None, log)."""
+        pkg, prof = os.path.join(self.dir, "pkg-" + tag), os.path.join(self.dir, "profile-" + tag)
+        log = []
+        for step_name, argv, timeout in (
+                ("package", self.py() + [t["adapter"], "package", "--repo", ".", "--output", pkg], 600),
+                ("deploy", self.py() + [t["adapter"], "deploy", "--repo", ".", "--package", pkg, "--snapshot",
+                                        t["snapshot_root"].rstrip("/") + "/" + name, "--host", t["host"],
+                                        "--work-root", t["work_root"], "--output", prof], 900)):
+            rc, text = self.step(argv, timeout, step_name)
+            log.append("== %s rc=%s\n%s" % (step_name, rc, text[-3000:]))
+            if rc != 0:
+                return None, log
+        return prof, log
+
+    def frozen_gate(self, g):
+        """The baseline of a frozen task: the recorded failure report and results, not a new licensed run."""
+        t, fb = g["tracked"], g["tracked"]["frozen_baseline"]
+        report = open(fb["report"], encoding="utf-8").read()
+        files = {}
+        if fb.get("results"):
+            for rel in t["fetch"]:
+                path = os.path.join(fb["results"], *rel.split("/"))
+                files[rel] = open(path, encoding="utf-8").read() if os.path.isfile(path) else None
+        results = self.results_view(t, files, "the recorded baseline run", "baseline-frozen") if t["fetch"] else ""
+        return dict(name=g["name"], acceptance=g["acceptance"], rc=1, passed=False, tracked=True, task_key=None,
+                    log=fb["report"], failure_report=fb["report"], engineering="fail", seconds=0.0, results=results,
+                    tail=("== frozen baseline: the recorded run of this base, not re-run\n== failure report\n"
+                          + report)[-GATE_OUTPUT_MAX:])
+
     def fetch(self, t, profile, workspace, tag):
         """Copy the gate's declared result files back; -> a bounded view for the next prompt."""
         try:
@@ -421,8 +470,11 @@ class Run:
             files = self.fetcher(t["host"], mode, workspace, t["fetch"])
         except Exception as exc:   # evidence is a help to the worker, never a gate verdict
             return "== results not fetched: %s" % exc
+        return self.results_view(t, files, workspace, tag)
+
+    def results_view(self, t, files, source, tag):
         keep = os.path.join(self.dir, "results-" + tag)
-        lines = ["== results (from %s)" % workspace]
+        lines = ["== results (from %s)" % source]
         for rel in t["fetch"]:
             text = files.get(rel)
             if text is None:
@@ -574,6 +626,7 @@ class Run:
         tokens = [r["tokens"] for r in rounds if r.get("tokens") is not None]
         outcome = dict(
             schema=1, task=self.c["id"], condition=self.condition, harness=self.c["harness"]["name"], run=self.id,
+            expected=self.c.get("expected_outcome", "pass"),
             status=result.get("status"), stage=result.get("stage"),
             accepted=result.get("status") == "ready-for-review",
             claimed=result.get("claimed", "ready-for-review" if result.get("status") == "ready-for-review" else None),
@@ -581,16 +634,26 @@ class Run:
             files=result.get("files", []), protected_touched=result.get("protected_touched", []),
             outside_editable=result.get("outside_editable", []),
             rounds=len(rounds), cost_usd=round(self.cost, 4), tokens=sum(tokens) if tokens else None,
-            licensed_jobs=self.licensed, minutes=round((self.clock() - self.started) / 60.0, 2),
+            licensed_jobs=self.licensed + (result.get("b_launches") or 0), b_launches=result.get("b_launches"),
+            minutes=round((self.clock() - self.started) / 60.0, 2),
             outside_paths=(result.get("replay") or {}).get("outside_paths"),
             failure_report=result.get("failure_report"), harness_version=harness_version(self.c["harness"]["name"]))
         with open(os.path.join(self.dir, "outcome.json"), "w", encoding="utf-8") as fh:
             json.dump(outcome, fh, indent=1, sort_keys=True)
 
-    def prompt_b(self):
-        """Condition B's request: what a chat user would type, with the same briefing as C's contract."""
+    def prompt_b(self, baseline=()):
+        """Condition B's request: what a chat user would type, with the same briefing as C's contract
+        and the same evidence as C's first round (the failing checks' output, reports and results)."""
         c = self.c
         lines = [c["goal"], ""]
+        failing = [g for g in baseline if not g["passed"]]
+        if failing or (c["kind"] == "diagnosis" and c["failure_report"]):
+            lines += ["What the checks show now:"]
+            if c["kind"] == "diagnosis" and c["failure_report"]:
+                lines += [open(c["failure_report"], encoding="utf-8").read()[-5000:]]
+            for g in failing:
+                lines += ["--- %s: FAIL" % g["name"], g["tail"][-2500:]] + ([g["results"]] if g.get("results") else [])
+            lines += [""]
         lines += ["You are working in a fresh clone of the repository; work from it alone and do not read any "
                   "other checkout or directory on this machine." if c["replay"] else
                   "You are working in a git worktree of %s; edit files there only." % c["repo"]]
@@ -599,7 +662,26 @@ class Run:
         lines += ["Keep the change to: " + ", ".join(c["editable"]) + ".",
                   "Do not modify: " + (", ".join(c["protected"]) or "nothing listed") + ".",
                   "Check your work with:"]
-        lines += ["- " + " ".join(g["run"]) for g in c["gates"]]
+        lines += ["- " + " ".join(g["run"]) for g in c["gates"] if "run" in g]
+        for g in c["gates"]:
+            if "tracked" not in g:
+                continue
+            t, d = g["tracked"], self.b_tracked[g["name"]]
+            lines += [
+                "- the tracked cluster run `%s` (a licensed job on %s). You may launch at most %d of your own; "
+                "after you finish, one more run is made on your final state to judge it." % (
+                    g["name"], t["host"], c["budget"]["licensed_jobs"]),
+                "  A profile of the unchanged base is deployed at %s." % d["profile"],
+                "  Start: py -3 -m deployment.bnl.jobs.workflow start --profile <profile dir>/profile.json "
+                "--state-dir %s --task-key %s-<n> --repo . --manifest <profile dir>/manifest.json "
+                "--parameters-file %s --host %s" % (d["state"], self.id, d["params"], t["host"]),
+                "  Then collect with the same --profile, --state-dir and --task-key until it is done: "
+                "py -3 -m deployment.bnl.jobs.workflow collect ...",
+                "  A changed packaged file needs a new package and profile first: py -3 %s package --repo . "
+                "--output %s/b-pkg-<n>, then py -3 %s deploy --repo . --package %s/b-pkg-<n> --snapshot "
+                "%s/worker-%s-b<n> --host %s --work-root %s --output %s/b-profile-<n>." % (
+                    t["adapter"], self.dir, t["adapter"], self.dir, t["snapshot_root"].rstrip("/"), self.id,
+                    t["host"], t["work_root"], self.dir)]
         lines += ["Do not commit or push.", "",
                   "When you finish, end your answer with one line: `STATUS: done` if the change is complete and "
                   "the checks pass, or `STATUS: blocked: <what stopped you, and the question you need answered>`."]
@@ -616,9 +698,23 @@ class Run:
         record_dir = os.path.join(self.dir, "session")
         os.makedirs(record_dir)
         h, b = self.c["harness"], self.c["budget"]
-        shell = sorted({" ".join(g["run"][:4] if g["run"][2:3] == ["-m"] else g["run"][:3]) + ":*"
-                        for g in self.c["gates"] if "run" in g})
-        out = self.plain(h["name"], self.prompt_b(), self.wt, b["usd"], b["minutes"] * 60, record_dir, h.get("model"),
+        shell = {" ".join(g["run"][:4] if g["run"][2:3] == ["-m"] else g["run"][:3]) + ":*"
+                 for g in self.c["gates"] if "run" in g}
+        self.b_tracked = {}
+        for g in self.c["gates"]:
+            if "tracked" in g:
+                # B checks its own work through the tracker, as a chat session would: a profile of the
+                # base (no licence), its own task store, and the commands to repackage and launch.
+                t, tag = g["tracked"], "b-base-" + re.sub(r"[^A-Za-z0-9._-]", "_", g["name"])
+                prof, log = self.deploy_profile(t, "worker-%s-%s" % (self.id, tag), tag)
+                if prof is None:
+                    return self.fail("baseline", "could not deploy B's base profile: " + "\n".join(log)[-500:],
+                                     gates)
+                self.b_tracked[g["name"]] = dict(profile=prof, params=self.write_params(t, tag),
+                                                 state=os.path.join(self.dir, "b-tasks"))
+                shell |= {"py -3 -m deployment.bnl.jobs.workflow:*", "py -3 %s:*" % t["adapter"]}
+        shell = sorted(shell)
+        out = self.plain(h["name"], self.prompt_b(gates), self.wt, b["usd"], b["minutes"] * 60, record_dir, h.get("model"),
                          shell)
         self.cost += out.get("cost_usd") or 0.0
         text = out.get("text") or ""
@@ -644,16 +740,35 @@ class Run:
             elif os.path.exists(os.path.join(self.wt, *n.split("/"))):
                 os.remove(os.path.join(self.wt, *n.split("/")))
         self.log("scope", files=names, protected_touched=touched, outside_editable=outside, violation=violation)
-        last = self.gates("session")
         kept = [n for n in names if n not in touched]
+        own = self.b_launches()
+        if not kept:   # nothing to judge: no licensed run is spent on an unchanged base
+            result = self.finish("not-accepted", gates, None)
+            result.update(claimed=claimed, protected_touched=touched, outside_editable=outside, files=[],
+                          b_launches=own)
+            return result
+        self.c["budget"]["licensed_jobs"] = self.licensed + sum(1 for g in self.c["gates"] if "tracked" in g)
+        last = self.gates("session")
         if all(g["passed"] for g in last) and kept:
             _, kept_diff, _ = self.scope()
             result = self.finish("ready-for-review", last, (kept, kept_diff))
         else:
             result = self.finish("not-accepted", last, None)
         result.update(claimed=claimed, protected_touched=touched, outside_editable=outside,
-                      files=kept if kept else [])
+                      files=kept if kept else [], b_launches=own)
         return result
+
+    def b_launches(self):
+        """How many cluster jobs condition B launched itself: records in its own task store with a job."""
+        n = 0
+        for path in glob.glob(os.path.join(self.dir, "b-tasks", "*", "task.json")):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    record = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            n += 1 if (record.get("reference") or {}).get("job_id") else 0
+        return n
 
     def execute_c(self):
         gates, broken, done = self.preflight()
