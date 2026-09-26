@@ -28,7 +28,19 @@ scp/rsync) are classified, first match wins:
   kill      kill / pkill
   read      everything else: log tails, greps, ps, ls -- monitoring and diagnosis
 The classes are heuristics. Check them with --sample before quoting a number.
+
+The "after" measurement (condition B in ordinary use) adds two things:
+  --exclude-session ID   leave out a session (the tracker's own development
+                         session is not ordinary use); repeatable
+  --hook PATH            the repo's deployment/bnl/tracker_hook.py: every shell
+                         call naming a migrated flow is put to that hook as a
+                         synthetic PreToolUse event, so "a launch of a migrated
+                         flow in its untracked form" means exactly what the
+                         deployed guard means. Reported: tracked starts, such
+                         launches the hook refused in the session, and such
+                         launches that ran (escapes).
 """
+import subprocess
 import argparse
 import collections
 import glob
@@ -66,6 +78,14 @@ PATTERN_ARG = re.compile(r"\b(grep|egrep|zgrep|pgrep|pkill|awk|sed|jq|echo|print
                          r"((?:\s+-[\w-]+(?:\s+[$\w][\w.$]*)?)*)\s+(\"[^\"]*\"|'[^']*')")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?")
 WAIT_TOOLS = ("Monitor", "ScheduleWakeup", "BashOutput", "TaskOutput")
+#: The migrated flows' executables, by repository: the prefilter before a command is put to the hook.
+MIGRATED = {"tsmc65": ("dig_flows/run.py", "run.py", "tracked_job.py"),
+            "tsmc28": ("tracked_adc.py", "adc_cal_bench", "bandgap_dc.py", "tracked_job.py"),
+            "xt011": ("run_buf_bench.sh", "launch_buf_bench.sh", "tracked_job.py"),
+            "sky130": ("run_schematic.sh", "tracked_job.py")}
+TRACKED_START = re.compile(r"jobs\.workflow\s+start\b")
+TRACKED_COLLECT = re.compile(r"jobs\.workflow\s+collect\b")
+HOOK_DENIAL = "Tracked compute required"
 
 
 REMOTE_LINE = "\x01"   # marks a line of a heredoc fed to ssh
@@ -273,8 +293,20 @@ def sleep_seconds(cmd):
     return s + sum(int(n) for n in re.findall(r"Start-Sleep\s+(?:-Seconds\s+)?(\d+)", cmd))
 
 
-def scan(repo, since, until, root):
+def seconds_between(start, end):
+    import datetime
+    try:
+        a, b = (datetime.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in (start, end))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    d = (b - a).total_seconds()
+    return d if 0 <= d < 86400 else None
+
+
+def scan(repo, since, until, root, exclude=()):
     calls, results = {}, {}
+    denials = set()
+    ended = {}
     sessions = collections.defaultdict(lambda: dict(prompts=0, interrupts=0, first=None, last=None))
     prompt_ids = set()
     for f in glob.glob(os.path.join(root, "C--dev-spec2si-" + repo + "*", "*.jsonl")):
@@ -284,9 +316,27 @@ def scan(repo, since, until, root):
             except ValueError:
                 continue
             ts = d.get("timestamp") or ""
-            if d.get("entrypoint") == "sdk-cli" or not (since <= ts[:10] < until):
+            if d.get("entrypoint") == "sdk-cli":
                 continue
             sid = d.get("sessionId") or "?"
+            if sid in exclude:
+                continue
+            inside = since <= ts[:10] < until
+            if not inside:
+                # Outside the window a session's calls are not counted, but the scripts it wrote are
+                # remembered: a window that starts mid-session otherwise sees `ssh host bash -s < f`
+                # for an f written the day before as opaque (19 % of the 2026-09-25/26 interim).
+                content = (d.get("message") or {}).get("content")
+                for c in content if isinstance(content, list) else []:
+                    if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("id") not in calls:
+                        inp = c.get("input") or {}
+                        cmd = inp.get("command") if c.get("name") in ("Bash", "PowerShell") else None
+                        entry = dict(session=sid, name=c.get("name"), cmd=cmd or "", ts=ts, outside=True)
+                        path = str(inp.get("file_path") or "")
+                        if c.get("name") == "Write" and path.endswith(SCRIPT_SUFFIX):
+                            entry["script"] = (path.replace("\\", "/").rsplit("/", 1)[-1], str(inp.get("content") or ""))
+                        calls[c["id"]] = entry
+                continue
             s = sessions[sid]
             s["first"] = min(filter(None, (s["first"], ts)))
             s["last"] = max(filter(None, (s["last"], ts)))
@@ -313,11 +363,60 @@ def scan(repo, since, until, root):
                                                     str(inp.get("content") or ""))
                 elif c.get("type") == "tool_result":
                     results[c.get("tool_use_id")] = bool(c.get("is_error"))
+                    ended[c.get("tool_use_id")] = ts
+                    body = c.get("content")
+                    body = body if isinstance(body, str) else json.dumps(body)
+                    if c.get("is_error") and HOOK_DENIAL in body:
+                        denials.add(c.get("tool_use_id"))   # kept as a flag only, never the text
+    calls["__denials__"] = denials
+    calls["__ended__"] = ended
     return calls, results, sessions
+
+
+def hook_denies(hook, repo_root, cmd):
+    """Would the repo's deployed guard deny this command? (a synthetic PreToolUse event)"""
+    event = dict(hook_event_name="PreToolUse", session_id="baseline-probe", cwd=repo_root, tool_name="Bash",
+                 tool_input=dict(command=cmd))
+    p = subprocess.run([sys.executable, hook], input=json.dumps(event), stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, universal_newlines=True, encoding="utf-8", timeout=60)
+    try:
+        out = json.loads(p.stdout or "{}")
+    except ValueError:
+        return False
+    return (out.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
+
+
+def migrated(calls, repo, hook):
+    """Tracked starts/collects and untracked launches of the migrated flows, by the repo's own guard."""
+    denials = calls.get("__denials__", set())
+    names = MIGRATED.get(repo, ())
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(hook))))
+    m = collections.Counter()
+    for cid, c in calls.items():
+        if cid in ("__denials__", "__ended__") or c.get("outside") or c["name"] not in ("Bash", "PowerShell"):
+            continue
+        text = c["cmd"]
+        if TRACKED_START.search(text):
+            m["tracked_starts"] += 1
+        if TRACKED_COLLECT.search(text):
+            m["tracked_collects"] += 1
+        if not any(n in text for n in names) or TRACKED.search(text):
+            continue
+        if hook_denies(hook, repo_root, text):
+            m["untracked_launch_attempts"] += 1
+            m["refused_by_hook" if cid in denials else "untracked_launches_ran"] += 1
+    out = dict(tracked_starts=m["tracked_starts"], tracked_collects=m["tracked_collects"],
+               untracked_launch_attempts=m["untracked_launch_attempts"], refused_by_hook=m["refused_by_hook"],
+               untracked_launches_ran=m["untracked_launches_ran"])
+    if m["tracked_starts"] + m["untracked_launches_ran"]:
+        out["tracked_share"] = round(m["tracked_starts"] / (m["tracked_starts"] + m["untracked_launches_ran"]), 3)
+    return out
 
 
 def measure(calls, results, sessions):
     m = collections.Counter()
+    ended = calls.get("__ended__", {})
+    calls = {k: v for k, v in calls.items() if k not in ("__denials__", "__ended__")}
     by_session = collections.defaultdict(list)
     for cid, c in calls.items():
         by_session[c["session"]].append((c["ts"], cid, c))
@@ -327,6 +426,12 @@ def measure(calls, results, sessions):
         seen = collections.Counter()
         scripts = {}
         for _ts, cid, c in sorted(items, key=lambda x: (x[0], x[1])):
+            if c.get("outside"):   # before the window: learn its scripts, count nothing
+                if "script" in c:
+                    scripts[c["script"][0]] = c["script"][1]
+                if c["name"] in ("Bash", "PowerShell"):
+                    scripts.update(written_scripts(c["cmd"]))
+                continue
             m["tool_calls"] += 1
             if c["name"] in WAIT_TOOLS:
                 m["wait_tool_calls"] += 1
@@ -343,6 +448,13 @@ def measure(calls, results, sessions):
                 continue
             m["cluster_calls"] += 1
             m[kind] += 1
+            # How long the session sat in this cluster call: `sleep` counts only literal sleeps, but a
+            # foreground `timeout 8200 ssh ... bash -s < watcher.sh` blocks the conversation as surely.
+            took = seconds_between(c["ts"], ended.get(cid))
+            if took is not None:
+                m["cluster_call_seconds"] += took
+                if took >= 600:
+                    m["cluster_calls_over_10min"] += 1
             samples[kind].append((c["cmd"], " <- ".join(REASON)))
             if kind.startswith(("eda", "compute")):
                 launch_sessions.add(sid)
@@ -368,7 +480,9 @@ def measure(calls, results, sessions):
         tracked_calls=m["tracked"], transfers=m["transfer"], kills=m["kill"], cluster_reads=m["read"],
         opaque_scripts=m["opaque"],
         sessions_with_launch=len(launch_sessions),
-        sleep_hours=round(m["sleep_seconds"] / 3600.0, 1), wait_tool_calls=m["wait_tool_calls"])
+        sleep_hours=round(m["sleep_seconds"] / 3600.0, 1), wait_tool_calls=m["wait_tool_calls"],
+        cluster_call_hours=round(m["cluster_call_seconds"] / 3600.0, 1),
+        cluster_calls_over_10min=m["cluster_calls_over_10min"])
     if eda + compute:
         out["reads_per_launch"] = round(m["read"] / (eda + compute), 1)
     if eda:
@@ -387,12 +501,16 @@ def main():
     ap.add_argument("--root", default=os.path.expanduser("~/.claude/projects"))
     ap.add_argument("--json", help="write the counts here")
     ap.add_argument("--sample", help="KIND:N -- print N example commands of KIND to stderr (local only)")
+    ap.add_argument("--exclude-session", action="append", default=[], help="a session id to leave out; repeatable")
+    ap.add_argument("--hook", help="the repo's deployment/bnl/tracker_hook.py: count the migrated flows by it")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    calls, results, sessions = scan(a.repo, a.since, a.until, a.root)
+    calls, results, sessions = scan(a.repo, a.since, a.until, a.root, set(a.exclude_session))
     out, samples = measure(calls, results, sessions)
-    out.update(repo=a.repo, since=a.since, until=a.until)
+    out.update(repo=a.repo, since=a.since, until=a.until, excluded_sessions=len(a.exclude_session))
+    if a.hook:
+        out["migrated"] = migrated(calls, a.repo, a.hook)
     print(json.dumps(out, indent=1, sort_keys=True))
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
