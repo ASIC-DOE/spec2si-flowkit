@@ -309,7 +309,12 @@ cmd_request() {
 # timeout, memory, disk). Counts only -- no line ever leaves the cluster
 # (NDA). Read: $JOBS/<jobid>/stdout.log and the *.log files under the job's
 # recorded cwd (its workspace), to depth 4, under 64 MB each.
-SIG_LICENSE='SPECTRE-209|[Ll]icen[cs]e.{0,60}(unavailable|denied|checkout|check out|not available|exhausted|expired)|FLEXnet|FLEXlm|Licensed number of users already reached|No such feature exists'
+# SIG_LICENSE counts DENIALS only. Every tool announces a SUCCESSFUL checkout
+# (Genus "checkout complete", Virtuoso "checked out successfully ... checkout
+# time", Innovus echoing setLicenseCheck -checkout), so a bare checkout/FLEXlm
+# word scored a passing Genus run 9 and made failure.py call an early failure
+# a licence tool-error (2026-09-26). A checkout counts only with a failure word.
+SIG_LICENSE='SPECTRE-209|[Ll]icen[cs]e.{0,60}(unavailable|denied|not available|exhausted|expired|could not be checked out|check ?out (failed|error))|([Ff]ail(ed|ure)?|[Cc]annot|[Cc]ould not|[Uu]nable) to (check ?out|obtain|acquire|get) .{0,30}[Ll]icen[cs]e|(FLEXnet|FLEXlm) ([Ll]icensing )?[Ee]rror|[Ll]icen[cs]e server .{0,40}(down|not responding)|[Cc]annot connect to (the )?[Ll]icen[cs]e server|Licensed number of users already reached|No such feature exists'
 SIG_CRASH='Segmentation fault|core dumped|SIGSEGV|Bus error|[Ii]nternal [Ee]rror|INTERNAL ERROR'
 SIG_ENV='command not found|toolchain not activated|cannot open shared object'
 SIG_TRACEBACK='Traceback \(most recent call last\)'
