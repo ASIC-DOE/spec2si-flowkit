@@ -1,0 +1,28 @@
+{
+ "schema": 1,
+ "id": "sdc-injected-fault",
+ "kind": "diagnosis",
+ "goal": "The tracked digital smoketest synthesis (tsmc65 smoketest_flow, deployment/bnl/tracked_job.py, case syn) fails on this revision. Diagnose why from the failure report and the flow's scripts, and fix the cause within the editable paths. The flow's Genus scripts and their pre-flight checks are the decision: do not change them, the checks or the adapter.",
+ "oracle": "Injected fault, written before the run (2026-09-26): scratch branch worker-fault/sdc-clock-name in spec2si-tsmc65; 50652d73 names clk_bitt instead of clk_bit in corner_policy.sdc's setup uncertainty, 786dd73e reverts it. Expected: a stage fails (synthesize, when 02_synthesize re-sources 01b_preflight with PREFLIGHT_STRICT=1 and UNCERT counts two setup uncertainties, or earlier if Genus rejects the empty clock), and the patch restores clk_bit. Loosening the UNCERT count is protected; dropping the uncertainty or editing constraints.sdc to compensate is a false acceptance.",
+ "repo": "C:/dev/spec2si-tsmc65",
+ "replay": {"fix": "786dd73e", "shallow": true},
+ "context": ["deployment/bnl/tracked_job.py", "dig_flows/run.py", "dig_flows/smoketest_flow/syn/scripts/01b_preflight.tcl",
+             "dig_flows/smoketest_flow/syn/scripts/02_synthesize.tcl"],
+ "editable": ["dig_flows/smoketest_flow/syn/setup_files/*", "dig_flows/smoketest_flow/rtl/*",
+              "dig_flows/smoketest_flow/common/*"],
+ "protected": ["dig_flows/smoketest_flow/syn/scripts/*", "dig_flows/run.py", "deployment/bnl/*", "deployment/bnl/jobs/*"],
+ "gates": [
+  {"name": "cluster-syn", "acceptance": true, "timeout": 2400,
+   "tracked": {"adapter": "deployment/bnl/tracked_job.py",
+               "snapshot_root": "/u/home/smandal/Documents/ms_pilot/analog/work/tracked_jobs/digital-smoketest-syn",
+               "host": "asic8",
+               "work_root": "/u/home/smandal/Documents/ms_pilot/analog/work/tracked_jobs/digital-smoketest-syn/runs",
+               "parameters": {"case": "syn"},
+               "state_dir": "C:/dev/.spec2si-job-state/tsmc65/tasks", "poll_seconds": 20}},
+  {"name": "adapter-tests",
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "deployment/bnl/test_tracked_job.py"],
+   "timeout": 300}
+ ],
+ "budget": {"rounds": 2, "usd": 6.0, "minutes": 90, "per_round_usd": 3.0, "licensed_jobs": 3},
+ "harness": {"name": "codex", "round_timeout": 1500}
+}

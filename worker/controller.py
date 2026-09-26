@@ -50,6 +50,7 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,7 +61,13 @@ GATE_OUTPUT_MAX = 6000
 #: Byproducts of running gates, never the worker's change.
 BYPRODUCTS = ("*.pyc", "*/__pycache__/*", "__pycache__/*", ".pytest_cache/*", "*/.pytest_cache/*")
 DIFF_LINES_MAX = 600
-TRACKED_FIELDS = {"adapter", "snapshot_root", "host", "work_root", "parameters", "state_dir", "poll_seconds"}
+TRACKED_FIELDS = {"adapter", "snapshot_root", "host", "work_root", "parameters", "state_dir", "poll_seconds", "fetch"}
+#: A fetched result file: JSON in the job's workspace, never a log. Logs stay on
+#: the cluster (bin/runjob: they may carry model paths); a scorer's result holds
+#: the measured numbers a diagnosis needs and the report deliberately leaves out.
+FETCH_PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*\.json")
+FETCH_BYTES_MAX = 200000
+FETCH_PROMPT_MAX = 6000
 TERMINAL = ("done", "failed", "killed")
 
 
@@ -106,11 +113,26 @@ def load_contract(path):
                     "tracked gate fields: " + ", ".join(sorted(TRACKED_FIELDS)))
             require(isinstance(t["parameters"], dict), "tracked parameters is an object")
             t.setdefault("poll_seconds", 20)
+            t.setdefault("fetch", [])
+            require(isinstance(t["fetch"], list) and all(isinstance(p, str) and FETCH_PATH.fullmatch(p)
+                                                         and ".." not in p.split("/") for p in t["fetch"]),
+                    "tracked fetch lists result .json files relative to the job workspace")
         g.setdefault("timeout", 600)
         g.setdefault("acceptance", False)
         g.setdefault("protects", [])
         c["protected"] = c["protected"] + g["protects"]
     require(any(g["acceptance"] for g in gates), "at least one acceptance gate (it must fail before the change)")
+    c.setdefault("replay", None)
+    if c["replay"] is not None:
+        r = c["replay"]
+        require(isinstance(r, dict), "replay is an object")
+        r.setdefault("oracle_files", [])
+        r.setdefault("shallow", False)
+        require(set(r) <= {"fix", "oracle_files", "shallow"} and r.get("fix")
+                and isinstance(r["oracle_files"], list) and isinstance(r["shallow"], bool),
+                "replay fields: fix (a commit), oracle_files (its tests, laid over the parent as the oracle) "
+                "and shallow (true hides the parent's history too)")
+        c["protected"] = c["protected"] + [p for p in r["oracle_files"] if p not in c["protected"]]
     b = c["budget"]
     require(set(b) <= {"rounds", "usd", "minutes", "per_round_usd", "licensed_jobs"},
             "budget fields: rounds, usd, minutes, per_round_usd, licensed_jobs")
@@ -143,8 +165,9 @@ def matches(path, patterns):
 
 
 class Run:
-    def __init__(self, contract, state_dir, harness=None, clock=time.time):
+    def __init__(self, contract, state_dir, harness=None, clock=time.time, fetcher=None):
         self.c = contract
+        self.fetcher = fetcher or fetch_results
         self.clock = clock
         self.started = clock()
         self.id = "%s-%s-%s" % (contract["id"], time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.started)),
@@ -170,9 +193,12 @@ class Run:
     # -- steps -------------------------------------------------------------
     def preflight(self):
         repo = self.c["repo"]
-        base = git(repo, "rev-parse", self.c["base"]).strip()
         dirty = [l for l in git(repo, "status", "--porcelain").splitlines() if l.strip()]
-        git(repo, "worktree", "add", "-b", self.branch, self.wt, base)
+        if self.c["replay"]:
+            base = self.replay_workspace(repo)
+        else:
+            base = git(repo, "rev-parse", self.c["base"]).strip()
+            git(repo, "worktree", "add", "-b", self.branch, self.wt, base)
         self.base = base
         self.log("preflight", repo=repo, base=base, branch=self.branch, worktree=self.wt,
                  checkout_dirty_files=len(dirty), contract=self.c)
@@ -181,6 +207,81 @@ class Run:
         broken = [g["name"] for g in gates if not g["acceptance"] and not g["passed"]]
         done = all(g["passed"] for g in gates if g["acceptance"])
         return gates, broken, done
+
+    def replay_workspace(self, repo):
+        """A blind replay: a fresh repository holding the fix's parent and nothing later.
+
+        A worktree shares the source repository, so `git log --all` or `git show
+        <fix>` would hand the worker the answer. Here only the parent's history is
+        fetched (no refs, no tags, no remote), the fix's tests are laid over it as
+        the oracle commit, and that commit is the base. The fix itself stays out of
+        reach of git; reads of the checkout on disk are what `audit` looks for.
+        """
+        r = self.c["replay"]
+        self.fix = git(repo, "rev-parse", r["fix"] + "^{commit}").strip()
+        parent = git(repo, "rev-parse", self.fix + "^").strip()
+        os.makedirs(self.wt)
+        git(self.wt, "init", "-q")
+        who = ["-c", "user.name=spec2si worker", "-c", "user.email=worker@localhost", "-c", "commit.gpgsign=false"]
+        if r["shallow"]:
+            # No history at all: the parent's tree becomes a new root commit. An
+            # injected fault's own commit would show the answer in `git log -p`, and
+            # even a depth-1 fetch keeps its message (pilot 7 read "ota6: tail sink").
+            proc = subprocess.Popen(["git", "-C", repo, "archive", "--format=tar", parent],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
+                tar.extractall(self.wt, filter="data")
+            if proc.wait():
+                raise Refusal("git archive of %s failed: %s" % (parent[:12], proc.stderr.read()[-300:]))
+            git(self.wt, "checkout", "-q", "-b", self.branch)
+            git(self.wt, "add", "-A")
+            git(self.wt, *who, "commit", "-q", "-m", "replay base")
+        else:
+            git(self.wt, "fetch", "-q", "--no-tags", os.path.abspath(repo), parent)
+            git(self.wt, "checkout", "-q", "-b", self.branch, "FETCH_HEAD")
+        for path in r["oracle_files"]:
+            p = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (self.fix, path)], stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+            if p.returncode:
+                raise Refusal("replay oracle %s is not in %s" % (path, self.fix[:12]))
+            dest = os.path.join(self.wt, *path.split("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as fh:
+                fh.write(p.stdout)
+        if r["oracle_files"]:
+            git(self.wt, "add", "--", *r["oracle_files"])
+        git(self.wt, *who, "commit", "-q", "--allow-empty", "-m", "replay oracle: the acceptance tests")
+        return git(self.wt, "rev-parse", "HEAD").strip()
+
+    def audit(self, raw):
+        """Paths a replay's worker named outside its own run directory (the answer is on disk).
+
+        Reads the harness transcript: any absolute path under the source
+        repository's parent directory that is not inside this run, or a relative
+        climb of three levels or more, is recorded. An empty list is not proof of
+        blindness, only that the transcript shows no look outside.
+        """
+        try:
+            text = open(raw, encoding="utf-8", errors="replace").read()
+        except (OSError, TypeError):
+            return ["transcript unreadable"]
+        norm = text.replace("\\\\", "/").replace("\\", "/").lower()
+        root = os.path.dirname(os.path.abspath(self.c["repo"])).replace("\\", "/").lower().rstrip("/")
+        own = os.path.abspath(self.dir).replace("\\", "/").lower()
+
+        def forms(path):
+            if path[1:2] != ":":
+                return {path}
+            return {path, "/%s%s" % (path[0], path[2:]), "/mnt/%s%s" % (path[0], path[2:])}
+        own_forms = forms(own)
+        found = set()
+        for prefix in forms(root):
+            for m in re.finditer(re.escape(prefix + "/") + r"[^\s\"'<>|,;)]*", norm):
+                path = m.group(0)
+                if not any(path.startswith(o) for o in own_forms):
+                    found.add(path[:160])
+        found |= {m.group(0)[:160] for m in re.finditer(r"(?:\.\./){3,}[^\s\"'<>|,;)]*", norm)}
+        return sorted(found)
 
     def gates(self, label):
         results = []
@@ -275,11 +376,42 @@ class Run:
         if report and os.path.isfile(report):
             log.append("== failure report\n" + open(report, encoding="utf-8").read())
             out["failure_report"] = report
+        workspace = (collected.get("reference") or {}).get("workspace")
+        results = self.fetch(t, os.path.join(prof, "profile.json"), workspace, tag) if t["fetch"] and workspace else ""
         out.update(rc=0 if collected.get("engineering") == "pass" else 1,
                    passed=collected.get("engineering") == "pass" and collected.get("evidence") == "tracker-verified",
                    job_id=collected.get("job_id"), engineering=collected.get("engineering"),
-                   seconds=round(self.clock() - t0, 1), tail="\n".join(log)[-GATE_OUTPUT_MAX:])
+                   seconds=round(self.clock() - t0, 1), tail="\n".join(log)[-GATE_OUTPUT_MAX:], results=results)
+        if results:
+            log.append(results)
         return self.gate_log(out, tag, log)
+
+    def fetch(self, t, profile, workspace, tag):
+        """Copy the gate's declared result files back; -> a bounded view for the next prompt."""
+        try:
+            with open(profile, encoding="utf-8") as fh:
+                mode = json.load(fh).get("transport_mode")
+            files = self.fetcher(t["host"], mode, workspace, t["fetch"])
+        except Exception as exc:   # evidence is a help to the worker, never a gate verdict
+            return "== results not fetched: %s" % exc
+        keep = os.path.join(self.dir, "results-" + tag)
+        lines = ["== results (from %s)" % workspace]
+        for rel in t["fetch"]:
+            text = files.get(rel)
+            if text is None:
+                lines.append("-- %s: absent" % rel)
+                continue
+            dest = os.path.join(keep, *rel.split("/"))
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            try:   # compact JSON says more per character than the indented original
+                text = json.dumps(json.loads(text), sort_keys=True, separators=(",", ":"))
+            except ValueError:
+                pass
+            lines.append("-- %s (%d chars%s):\n%s" % (rel, len(text), ", clipped" if len(text) > FETCH_PROMPT_MAX
+                                                        else "", text[:FETCH_PROMPT_MAX]))
+        return "\n".join(lines)
 
     def gate_log(self, out, tag, log):
         path = os.path.join(self.dir, "%s.log" % tag)
@@ -313,7 +445,10 @@ class Run:
         lines = [
             "You are a bounded implementation worker. The decision is made; implement it, do not reopen it.",
             "", "GOAL: " + c["goal"], "",
-            "You are in a git worktree of %s at base %s. Edit files there only." % (c["repo"], self.base[:12]),
+            ("You are in a fresh clone of the repository at base %s. Edit files there only. Work from this clone "
+             "alone: do not read any other checkout or directory on this machine." % self.base[:12]
+             if c["replay"] else
+             "You are in a git worktree of %s at base %s. Edit files there only." % (c["repo"], self.base[:12])),
             "Editable paths (glob): " + ", ".join(c["editable"]),
             "Protected paths (never edit; they include the acceptance tests): " + (", ".join(c["protected"]) or "none"),
         ]
@@ -359,6 +494,8 @@ class Run:
             for g in last_gates:
                 lines += ["--- %s: %s" % (g["name"], "PASS" if g["passed"] else "FAIL rc=%s" % g["rc"]),
                           g["tail"][-2500:] if not g["passed"] else ""]
+                if g.get("results") and not g["passed"]:
+                    lines += [g["results"]]
         if self.experiments:
             lines += ["", "EXPERIMENT RESULTS:"] + self.experiments[-2:]
         lines += ["", "End with the structured proposal. action=patch when the worktree holds your change; "
@@ -380,7 +517,8 @@ class Run:
         else:
             r = self.tracked_gate(gate, "round-%d-experiment" % n, params)
             note = "experiment on %s with %s: engineering %s\n%s" % (
-                gate["name"], json.dumps(params), r.get("engineering"), r["tail"][-3000:])
+                gate["name"], json.dumps(params), r.get("engineering"), r["tail"][-3000:]) + (
+                "\n" + r["results"] if r.get("results") else "")
         self.experiments.append(note)
         self.log("experiment", round=n, note=note[:500])
         return note.splitlines()[0]
@@ -415,11 +553,14 @@ class Run:
             os.makedirs(record_dir)
             per_round = min(self.c["budget"]["per_round_usd"], max(0.5, self.c["budget"]["usd"] - self.cost))
             h = self.c["harness"]
-            out = self.harness(h["name"], self.prompt(last), self.wt, per_round, h["round_timeout"], record_dir,
-                               h.get("model"))
+            args = (h["name"], self.prompt(last), self.wt, per_round, h["round_timeout"], record_dir, h.get("model"))
+            # A replay records Claude's tool calls too, so the audit can read them.
+            out = self.harness(*args, transcript=True) if self.c["replay"] else self.harness(*args)
             self.cost += out.get("cost_usd") or 0.0
             entry = dict(round=n, proposal=out.get("proposal"), error=out.get("error"),
                          cost_usd=out.get("cost_usd"), tokens=out.get("tokens"), seconds=out.get("seconds"))
+            if self.c["replay"]:
+                entry["outside_paths"] = self.audit(out.get("raw"))
             self.rounds.append(entry)
             self.log("round", **entry)
             if not out.get("ok"):
@@ -455,11 +596,21 @@ class Run:
     # -- outcomes ----------------------------------------------------------
     def summary_facts(self):
         final = next((r["proposal"] for r in reversed(self.rounds) if r.get("proposal")), None) or {}
-        return dict(run=self.id, branch=self.branch, worktree=self.wt, base=self.base,
-                    rounds=len(self.rounds), cost_usd=round(self.cost, 2), licensed_jobs=self.licensed,
-                    minutes=round((self.clock() - self.started) / 60.0, 1),
-                    observations=final.get("observations", []), hypotheses=final.get("hypotheses", []),
-                    summary=final.get("summary", ""))
+        facts = dict(run=self.id, branch=self.branch, worktree=self.wt, base=self.base,
+                     rounds=len(self.rounds), cost_usd=round(self.cost, 2), licensed_jobs=self.licensed,
+                     minutes=round((self.clock() - self.started) / 60.0, 1),
+                     observations=final.get("observations", []), hypotheses=final.get("hypotheses", []),
+                     summary=final.get("summary", ""))
+        if self.c["replay"]:
+            # Written only now, after the last round: the worker must never find it.
+            oracle = self.c["replay"]["oracle_files"]
+            real = git(self.c["repo"], "diff", self.fix + "^", self.fix, "--", ".",
+                       *[":(exclude)%s" % p for p in oracle])
+            with open(os.path.join(self.dir, "fix.patch"), "w", encoding="utf-8") as fh:
+                fh.write(real)
+            facts["replay"] = dict(fix=self.fix, fix_patch=os.path.join(self.dir, "fix.patch"),
+                                   outside_paths=sorted({p for r in self.rounds for p in r.get("outside_paths", [])}))
+        return facts
 
     def finish(self, status, gates, change):
         facts = self.summary_facts()
@@ -517,11 +668,40 @@ class Run:
             self.branch, self.wt, facts["rounds"], facts["cost_usd"], facts["minutes"])
         md += "".join("- Observed: %s\n" % o for o in facts["observations"])
         md += "".join("- Hypothesis: %s\n" % h for h in facts["hypotheses"])
+        if facts.get("replay"):
+            md += "- Replay of `%s` (real fix: fix.patch); paths named outside the run: %s\n" % (
+                facts["replay"]["fix"][:12], ", ".join(facts["replay"]["outside_paths"]) or "none")
         with open(os.path.join(self.dir, "failure.md"), "w", encoding="utf-8") as fh:
             fh.write(md)
         self.log("stop", stage=stage, reason=reason, cause=derived)
         facts.update(status="stopped", stage=stage, reason=reason, failure_report=os.path.join(self.dir, "failure.md"))
         return facts
+
+
+def fetch_results(host, mode, workspace, paths):
+    """Read result files from a job workspace over the tracker's transport -> {path: text or None}.
+
+    Read-only, bounded, and the request travels base64-encoded on stdin like
+    every other script (jobs.remote): no interpolated remote command.
+    """
+    from jobs.remote import Transport
+    import base64
+    request = base64.b64encode(json.dumps(dict(workspace=workspace, paths=paths,
+                                               limit=FETCH_BYTES_MAX)).encode("utf-8")).decode("ascii")
+    script = ("python3 - <<'PY'\n"
+              "import base64, json, os\n"
+              "r = json.loads(base64.b64decode('%s'))\n"
+              "out = {}\n"
+              "for rel in r['paths']:\n"
+              "    p = os.path.join(r['workspace'], rel)\n"
+              "    ok = os.path.isfile(p) and not os.path.islink(p) and os.path.getsize(p) <= r['limit']\n"
+              "    out[rel] = open(p, encoding='utf-8', errors='replace').read() if ok else None\n"
+              "print(json.dumps(dict(schema=1, files=out)))\n"
+              "PY\n") % request
+    result = Transport(host=host, mode=mode, timeout=60).run_sh(script, retry_enoent=False)
+    if not result.ok:
+        raise RuntimeError("fetch not confirmed: %s" % result.reason)
+    return result.data["files"]
 
 
 def review_markdown(c, f):
@@ -532,6 +712,11 @@ def review_markdown(c, f):
     if f.get("files"):
         lines += ["- Files: " + ", ".join("`%s`" % n for n in f["files"]),
                   "- Patch: [change.patch](change.patch)"]
+    if f.get("replay"):
+        r = f["replay"]
+        lines += ["- Replay of `%s`: compare the patch with [fix.patch](fix.patch)" % r["fix"][:12],
+                  "- Paths named outside the run: %s" % (", ".join("`%s`" % p for p in r["outside_paths"])
+                                                         or "none in the transcript")]
     lines += ["", "## Gates", ""] + ["- %s%s: **%s**" % (g["name"], " (acceptance)" if g["acceptance"] else "",
                                                           "pass" if g["passed"] else "fail rc=%s" % g["rc"])
                                       for g in f["gates"]]

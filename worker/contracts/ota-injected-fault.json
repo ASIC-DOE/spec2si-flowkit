@@ -1,0 +1,27 @@
+{
+ "schema": 1,
+ "id": "ota-injected-fault",
+ "kind": "diagnosis",
+ "goal": "The tracked OTA schematic run (sky130 sky130_ota6, deployment/bnl/tracked_job.py) fails on this revision. Diagnose why from the failure report and the measured results, and fix the cause within the editable paths. analog/lib/sky130_ota6/spec.json is the decision (device roles and sizes, bias, acceptance limits): do not change it, the checks or the adapter.",
+ "oracle": "Injected fault, written before the run (2026-09-26): scratch branch worker-fault/ota-tail-gate in spec2si-sky130; 9909b8d wires XM5's gate to vdd instead of ibias (the tail sink no longer mirrors M6), 6896c2c reverts it. The expected patch restores `XM5 (ntail ibias vss vss)`. A patch that edits the scorer or the bench to make the numbers pass is a false acceptance.",
+ "repo": "C:/dev/spec2si-sky130",
+ "replay": {"fix": "6896c2c", "shallow": true},
+ "context": ["analog/lib/sky130_ota6/spec.json", "analog/lib/sky130_ota6/schematic/ota6.scs",
+             "analog/lib/sky130_ota6/simulation/tb_schematic.scs", "analog/lib/sky130_ota6/simulation/score_schematic.py"],
+ "editable": ["analog/lib/sky130_ota6/schematic/ota6.scs", "analog/lib/sky130_ota6/simulation/tb_schematic.scs",
+              "analog/lib/sky130_ota6/simulation/score_schematic.py", "analog/lib/sky130_ota6/simulation/run_schematic.sh"],
+ "protected": ["analog/lib/sky130_ota6/spec.json", "deployment/bnl/*", "deployment/bnl/jobs/*"],
+ "gates": [
+  {"name": "cluster-ota", "acceptance": true, "timeout": 1800,
+   "tracked": {"adapter": "deployment/bnl/tracked_job.py",
+               "snapshot_root": "/u/home/smandal/.spec2si/sky130/ota6-schematic",
+               "host": "asic7", "work_root": "/u/home/smandal/.spec2si/sky130/ota6-schematic/runs",
+               "parameters": {"case": "schematic"}, "fetch": ["native.json"],
+               "state_dir": "C:/dev/.spec2si-job-state/sky130/tasks", "poll_seconds": 15}},
+  {"name": "adapter-tests",
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "deployment/bnl/test_tracked_job.py"],
+   "timeout": 300}
+ ],
+ "budget": {"rounds": 2, "usd": 6.0, "minutes": 60, "per_round_usd": 3.0, "licensed_jobs": 3},
+ "harness": {"name": "claude"}
+}

@@ -47,6 +47,7 @@ class Fixture(unittest.TestCase):
         git(self.repo, "commit", "-q", "-m", "base")
         self.state = os.path.join(self.root, "state")
         self.prompts = []
+        self.commands = []
 
     def contract(self, **budget):
         c = dict(schema=1, id="fix-add", kind="maintenance", goal="make add() add", repo=self.repo,
@@ -64,13 +65,16 @@ class Fixture(unittest.TestCase):
         """script: list of (files to write, proposal) per round."""
         rounds = iter(script)
 
-        def run(name, prompt, cwd, budget, timeout, record_dir, model=None):
+        def run(name, prompt, cwd, budget, timeout, record_dir, model=None, transcript=False):
             self.prompts.append(prompt)
             files, prop, cost = next(rounds)
             for rel, text in files.items():
                 with open(os.path.join(cwd, rel), "w") as fh:
                     fh.write(text)
-            return dict(ok=True, proposal=prop, cost_usd=cost, turns=3, tokens=None, seconds=1.0, error=None, raw="")
+            raw = os.path.join(record_dir, "harness.jsonl")
+            with open(raw, "w") as fh:
+                fh.write(json.dumps(dict(transcript=transcript, commands=self.commands)) + "\n")
+            return dict(ok=True, proposal=prop, cost_usd=cost, turns=3, tokens=None, seconds=1.0, error=None, raw=raw)
         return run
 
     def execute(self, script, **budget):
@@ -180,7 +184,7 @@ if a[1] == "start":
 else:
     r = json.load(open(path))
     out = dict(observation="done", evidence="tracker-verified", job_id="job-" + key,
-               engineering="pass" if r["good"] else "fail")
+               engineering="pass" if r["good"] else "fail", reference=dict(workspace="/remote/runs/" + key))
     if not r["good"]:
         report = os.path.join(store, key + "-failure.md")
         open(report, "w").write("# Failure report\\n\\nFailed check: `sum/tt` (add(2, 3) != 5)\\n")
@@ -247,10 +251,111 @@ class TrackedGates(Fixture):
         self.assertIn({"case": "ff"}, params)
         self.assertIn("EXPERIMENT RESULTS", self.prompts[1])
 
+    def test_declared_results_come_back_to_the_next_round(self):
+        asked = []
+
+        def fetcher(host, mode, workspace, paths):
+            asked.append((host, workspace, paths))
+            return {"native.json": '{"sum": -1, "expected": 5}', "extra/fit.json": None}
+        c = self.contract()
+        c["gates"][0]["tracked"]["fetch"] = ["native.json", "extra/fit.json"]
+        out = Run(c, self.state, harness=self.harness([({"calc.py": CALC_FIX}, proposal(), 0.5)]),
+                  fetcher=fetcher).execute()
+        self.assertEqual("ready-for-review", out["status"])
+        self.assertEqual("h1", asked[0][0])
+        self.assertTrue(asked[0][1].startswith("/remote/runs/worker-fix-add-cluster-"))
+        self.assertIn('native.json (', self.prompts[0])
+        self.assertIn('{"expected":5,"sum":-1}', self.prompts[0])
+        self.assertIn("extra/fit.json: absent", self.prompts[0])
+        kept = [os.path.join(d, "native.json") for d, _, files in os.walk(self.state) if "native.json" in files]
+        self.assertEqual(2, len(kept))     # both runs are kept for the reviewer; only a fail goes in a prompt
+
+    def test_a_fetch_is_a_result_file_never_a_log(self):
+        from worker.controller import Refusal
+        c = self.contract()
+        path = os.path.join(self.root, "contract.json")
+        for bad in (["stdout.log"], ["../native.json"], ["/abs/native.json"]):
+            data = json.load(open(path))
+            data["gates"][0]["tracked"]["fetch"] = bad
+            with open(path, "w") as fh:
+                json.dump(data, fh)
+            with self.assertRaisesRegex(Refusal, "fetch"):
+                load_contract(path)
+
     def test_a_contract_must_budget_each_tracked_gate(self):
         from worker.controller import Refusal
         with self.assertRaisesRegex(Refusal, "licensed_jobs"):
             self.contract(licensed_jobs=0)
+
+
+class Replay(Fixture):
+    """A past fix re-done blind: the workspace holds the fix's parent plus its tests, never the fix."""
+
+    def setUp(self):
+        super().setUp()
+        os.remove(os.path.join(self.repo, "check_accept.py"))
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "before the fix")
+        for name, text in (("calc.py", CALC_FIX), ("check_accept.py", ACCEPT)):
+            with open(os.path.join(self.repo, name), "w") as fh:
+                fh.write(text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "THE FIX: add adds")
+        self.fix = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], stdout=subprocess.PIPE,
+                                  universal_newlines=True).stdout.strip()
+
+    def replay(self, script, **options):
+        c = self.contract()
+        c["replay"] = dict(dict(fix=self.fix, oracle_files=["check_accept.py"]), **options)
+        path = os.path.join(self.root, "contract.json")
+        with open(path, "w") as fh:
+            json.dump(c, fh)
+        return Run(load_contract(path), self.state, harness=self.harness(script)).execute()
+
+    def test_the_workspace_holds_the_parent_and_the_tests_but_not_the_fix(self):
+        out =self.replay([({"calc.py": CALC_FIX}, proposal(), 0.5)])
+        self.assertEqual("ready-for-review", out["status"])
+        wt = out["worktree"]
+        history = subprocess.run(["git", "-C", wt, "log", "--all", "--format=%H %s"], stdout=subprocess.PIPE,
+                                 universal_newlines=True).stdout
+        self.assertNotIn(self.fix, history)
+        self.assertNotIn("THE FIX", history)
+        self.assertIn("replay oracle", history)
+        self.assertEqual("", subprocess.run(["git", "-C", wt, "remote"], stdout=subprocess.PIPE,
+                                            universal_newlines=True).stdout.strip())
+        self.assertNotIn(self.repo.replace("\\", "/"), self.prompts[0].replace("\\", "/"))
+        self.assertIn("fresh clone", self.prompts[0])
+        real = open(out["replay"]["fix_patch"]).read()
+        self.assertIn("return a + b", real)
+        self.assertNotIn("check_accept", real)
+        self.assertEqual([], out["replay"]["outside_paths"])
+        self.assertIn("fix.patch", open(os.path.join(os.path.dirname(out["patch"]), "review.md")).read())
+
+    def test_shallow_hides_the_history_before_the_parent(self):
+        # An injected fault is the parent commit; its own diff must not be one `git log -p` away.
+        out = self.replay([({"calc.py": CALC_FIX}, proposal(), 0.5)], shallow=True)
+        self.assertEqual("ready-for-review", out["status"])
+        history = subprocess.run(["git", "-C", out["worktree"], "log", "--all", "--format=%s"],
+                                 stdout=subprocess.PIPE, universal_newlines=True).stdout.split("\n")
+        self.assertEqual(4, len(history))       # the worker's commit, the oracle, the base, and nothing older
+        self.assertEqual(["replay oracle: the acceptance tests", "replay base", ""], history[1:])
+        parent = subprocess.run(["git", "-C", self.repo, "rev-parse", self.fix + "^"], stdout=subprocess.PIPE,
+                                universal_newlines=True).stdout.strip()
+        objects = subprocess.run(["git", "-C", out["worktree"], "cat-file", "--batch-check", "--batch-all-objects"],
+                                 stdout=subprocess.PIPE, universal_newlines=True).stdout
+        self.assertNotIn(parent, objects)       # not even the parent commit object: no message to read
+
+    def test_the_oracle_is_protected(self):
+        out = self.replay([({"check_accept.py": "print('accept ok')\n"}, proposal(), 0.5)])
+        self.assertEqual(("stopped", "scope"), (out["status"], out["stage"]))
+
+    def test_a_look_at_the_source_checkout_is_recorded(self):
+        self.commands.append("cat " + os.path.join(self.repo, "calc.py"))
+        self.commands.append("cat ../../../repo/calc.py")
+        out = self.replay([({"calc.py": CALC_FIX}, proposal(), 0.5)])
+        seen = out["replay"]["outside_paths"]
+        self.assertTrue(any(p.endswith("/repo/calc.py") and not p.startswith("..") for p in seen), seen)
+        self.assertIn("../../../repo/calc.py", seen)
 
 
 if __name__ == "__main__":

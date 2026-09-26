@@ -53,12 +53,17 @@ def codex_exe():
     return sorted(found, key=os.path.getmtime)[-1] if found else shutil.which("codex")
 
 
-def run(name, prompt, cwd, budget_usd, timeout, record_dir, model=None):
-    """-> dict(ok, proposal, cost_usd, turns, tokens, seconds, error, raw)."""
+def run(name, prompt, cwd, budget_usd, timeout, record_dir, model=None, transcript=False):
+    """-> dict(ok, proposal, cost_usd, turns, tokens, seconds, error, raw).
+
+    transcript: record Claude's tool calls (stream-json) as well as its result,
+    so a replay's audit can read what it looked at. Codex's --json always does.
+    """
     start = time.time()
     raw = os.path.join(record_dir, "harness.jsonl")
     if name == "claude":
-        cmd = [shutil.which("claude") or "claude", "-p", prompt, "--output-format", "json",
+        cmd = [shutil.which("claude") or "claude", "-p", prompt, "--output-format",
+               "stream-json" if transcript else "json"] + (["--verbose"] if transcript else []) + [
                "--no-session-persistence", "--max-budget-usd", "%.2f" % budget_usd,
                "--json-schema", json.dumps(PROPOSAL), "--allowedTools"] + CLAUDE_TOOLS
         if model:
@@ -89,8 +94,10 @@ def run(name, prompt, cwd, budget_usd, timeout, record_dir, model=None):
     text = open(raw, encoding="utf-8", errors="replace").read()
     if name == "claude":
         try:
-            data = json.loads(text)
-        except ValueError:
+            data = json.loads(text) if not transcript else next(
+                e for e in reversed([json.loads(l) for l in text.splitlines() if l.strip().startswith("{")])
+                if e.get("type") == "result")
+        except (ValueError, StopIteration):
             result["error"] = "no JSON result (rc %s): %s" % (proc.returncode, stderr[-300:])
             return result
         result.update(cost_usd=data.get("total_cost_usd"), turns=data.get("num_turns"),

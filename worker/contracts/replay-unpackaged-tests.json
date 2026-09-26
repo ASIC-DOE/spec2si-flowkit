@@ -1,0 +1,23 @@
+{
+ "schema": 1,
+ "id": "replay-unpackaged-tests",
+ "kind": "maintenance",
+ "goal": "jobs.pilot.package binds every snapshot to the vendored test files under deployment/bnl/jobs (test_*.py), which never run on the cluster. A test-only re-vendor therefore made every deployed profile stale, and a trial session had to repackage and redeploy mid-acceptance. Change packaging so the vendored tests are not part of a package, keeping everything else it packages. The acceptance test test_vendored_tests_are_not_packaged in jobs/test_pilot.py states the decision.",
+ "oracle": "Blind replay of 149ea4f's jobs/pilot.py part (2026-09-24). The real fix adds `and not p.name.startswith(\"test_\")` to the rglob filter in package(), with a comment. Accept an equivalent filter on the vendored jobs tree; excluding tests from SPEC files or from the adapter's own list is a different, wider change.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "replay": {"fix": "149ea4f", "oracle_files": ["jobs/test_pilot.py"]},
+ "context": ["jobs/pilot.py", "jobs/test_pilot.py"],
+ "editable": ["jobs/pilot.py"],
+ "protected": ["jobs/test_*.py"],
+ "gates": [
+  {"name": "acceptance", "acceptance": true,
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "jobs/test_pilot.py", "-k", "vendored_tests"],
+   "timeout": 300},
+  {"name": "jobs-suite",
+   "run": ["py", "-3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "jobs", "--ignore=jobs/test_isolated_bundle.py",
+           "-k", "not vendored_tests"],
+   "timeout": 900}
+ ],
+ "budget": {"rounds": 3, "usd": 6.0, "minutes": 60, "per_round_usd": 2.5},
+ "harness": {"name": "codex", "round_timeout": 1500}
+}
