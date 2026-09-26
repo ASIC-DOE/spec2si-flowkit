@@ -596,8 +596,11 @@ class Run:
     # -- outcomes ----------------------------------------------------------
     def summary_facts(self):
         final = next((r["proposal"] for r in reversed(self.rounds) if r.get("proposal")), None) or {}
+        counted = [r["tokens"] for r in self.rounds if r.get("tokens") is not None]
         facts = dict(run=self.id, branch=self.branch, worktree=self.wt, base=self.base,
                      rounds=len(self.rounds), cost_usd=round(self.cost, 2), licensed_jobs=self.licensed,
+                     tokens=sum(counted) if counted else None,
+                     priced=any(r.get("cost_usd") is not None for r in self.rounds),
                      minutes=round((self.clock() - self.started) / 60.0, 1),
                      observations=final.get("observations", []), hypotheses=final.get("hypotheses", []),
                      summary=final.get("summary", ""))
@@ -664,8 +667,8 @@ class Run:
         with open(os.path.join(self.dir, "failure.json"), "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=1, sort_keys=True)
         md = failure.markdown(report)
-        md += "\n## Worker\n\n- Branch `%s` (worktree `%s`), %d round(s), $%.2f, %.1f min\n" % (
-            self.branch, self.wt, facts["rounds"], facts["cost_usd"], facts["minutes"])
+        md += "\n## Worker\n\n- Branch `%s` (worktree `%s`), %d round(s), %s, %.1f min\n" % (
+            self.branch, self.wt, facts["rounds"], spend(facts), facts["minutes"])
         md += "".join("- Observed: %s\n" % o for o in facts["observations"])
         md += "".join("- Hypothesis: %s\n" % h for h in facts["hypotheses"])
         if facts.get("replay"):
@@ -704,11 +707,18 @@ def fetch_results(host, mode, workspace, paths):
     return result.data["files"]
 
 
+def spend(f):
+    """What the run spent: dollars when a round reported a cost, else tokens (Codex prices nothing)."""
+    if not f["priced"] and f["tokens"] is not None:
+        return "%d tokens" % f["tokens"]
+    return "$%.2f" % f["cost_usd"]
+
+
 def review_markdown(c, f):
     lines = ["# Worker result: `%s`" % f["run"], "", "Status: **%s**." % f["status"], "",
              "- Goal: %s" % c["goal"],
              "- Branch `%s` from `%s`; worktree `%s`" % (f["branch"], f["base"][:12], f["worktree"]),
-             "- %d round(s), $%.2f, %.1f min" % (f["rounds"], f["cost_usd"], f["minutes"])]
+             "- %d round(s), %s, %.1f min" % (f["rounds"], spend(f), f["minutes"])]
     if f.get("files"):
         lines += ["- Files: " + ", ".join("`%s`" % n for n in f["files"]),
                   "- Patch: [change.patch](change.patch)"]
