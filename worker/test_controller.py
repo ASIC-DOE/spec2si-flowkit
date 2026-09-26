@@ -505,6 +505,22 @@ class Replay(Fixture):
             fh.write("\n".join(json.dumps(e) for e in events) + "\n")
         self.assertEqual(1, len(run.audit(raw)))
 
+    def test_current_tooling_is_laid_over_the_frozen_base(self):
+        os.makedirs(os.path.join(self.repo, "tools"))
+        with open(os.path.join(self.repo, "tools", "hook.py"), "w") as fh:
+            fh.write("# today's hook\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "tooling after the fix")
+        out = self.replay([({"calc.py": CALC_FIX}, proposal(), 0.5)], shallow=True, tooling=["tools"])
+        self.assertEqual("ready-for-review", out["status"])
+        wt = out["worktree"]
+        self.assertEqual("# today's hook\n", open(os.path.join(wt, "tools", "hook.py")).read())
+        history = subprocess.run(["git", "-C", wt, "log", "--all", "--format=%s"], stdout=subprocess.PIPE,
+                                 universal_newlines=True).stdout
+        self.assertIn("current tooling", history)
+        self.assertNotIn("THE FIX", history)
+        self.assertEqual(["calc.py"], out["files"])             # the overlay is base, not the worker's change
+
     def test_the_oracle_is_protected(self):
         out = self.replay([({"check_accept.py": "print('accept ok')\n"}, proposal(), 0.5)])
         self.assertEqual(("stopped", "scope"), (out["status"], out["stage"]))

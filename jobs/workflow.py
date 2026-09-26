@@ -10,6 +10,7 @@ import os
 import posixpath
 import re
 import sys
+import time
 import uuid
 
 from .remote import Transport, KNOWN, _SAFE_PATH
@@ -372,6 +373,27 @@ class Workflow:
                              **({"refusal": detail["refusal"]} if isinstance(detail.get("refusal"), dict) else {}))
 
 
+#: `collect --wait`: the longest foreground wait one call may take, and how often it polls. A
+#: one-shot session cannot sleep in the foreground (the harness blocks it), so it used to end
+#: on a background timer with its own job uncollected (B versus C, 2026-09-26: 4 of 6 runs).
+WAIT_MAX = 540
+WAIT_POLL = 10
+PENDING = ("submitted", "running")
+
+
+def waited(observe, seconds):
+    """observe() once, or, with --wait, until the job is no longer pending or `seconds` pass."""
+    result = observe()
+    if not seconds:
+        return result
+    deadline = time.monotonic() + seconds
+    while result.get("observation") in PENDING and time.monotonic() < deadline:
+        time.sleep(max(0.0, min(WAIT_POLL, deadline - time.monotonic())))
+        result = observe()
+    result["waited"] = dict(bound_s=seconds, still_pending=result.get("observation") in PENDING)
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("start", "status", "resume", "collect", "tasks", "report", "failures"),
@@ -395,6 +417,9 @@ def main(argv=None):
     parser.add_argument("--question", help="report: the question for the next exploration round")
     parser.add_argument("--close", help="report: exploration has answered it; say how")
     parser.add_argument("--all", action="store_true", help="failures: include closed reports")
+    parser.add_argument("--wait", type=int, metavar="SECONDS",
+                        help="collect only: wait in the foreground, polling, until the job is terminal or SECONDS "
+                             "pass (1..%d, under a tool call's 10-minute ceiling); repeat for longer jobs" % WAIT_MAX)
     args = parser.parse_args(argv)
     try:
         require(args.parameters is None or args.parameters_file is None,
@@ -405,6 +430,8 @@ def main(argv=None):
                          question=args.question, close=args.close)
         require(args.operation == "report" or not any(v is not None for v in declaring.values()),
                 "--cause/--by/--note/--contradicts/--question/--close are for report")
+        require(args.wait is None or (args.operation == "collect" and 1 <= args.wait <= WAIT_MAX),
+                "--wait is for collect, 1..%d seconds" % WAIT_MAX)
         if args.operation == "tasks":
             from .state import TaskStore
             require(args.state_dir is not None, "state-dir required")
@@ -439,7 +466,8 @@ def main(argv=None):
                 require(args.host is None and args.parameters in (None, "{}")
                         and args.parameters_file is None and args.repo is None
                         and args.manifest is None, "resume cannot change the request")
-                result = store.observe(workflow, args.task_key, args.operation == "collect")
+                result = waited(lambda: store.observe(workflow, args.task_key, args.operation == "collect"),
+                                args.wait)
         elif args.operation == "start":
             raise ContractError("durable start requires state-dir, task-key, repo and manifest")
         else:
@@ -450,7 +478,7 @@ def main(argv=None):
                     and args.parameters_file is None, "resume cannot change the request")
             with open(args.reference, encoding="utf-8") as fh:
                 reference = json.load(fh)["reference"]
-            result = workflow.observe(reference, collect=args.operation == "collect")
+            result = waited(lambda: workflow.observe(reference, collect=args.operation == "collect"), args.wait)
         print(json.dumps(result, sort_keys=True))
         return 4 if result.get("observation") in ("unknown", "submission-unknown") else 0
     except (ValueError, OSError, KeyError, TypeError) as exc:

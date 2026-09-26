@@ -20,6 +20,15 @@ def render(harness, command, existing=None):
         entries = hooks.setdefault(event, [])
         if item not in entries:
             entries.append(item)
+    if harness != "codex":
+        # Claude's Stop hook refuses to end a session holding an uncollected tracked job. Not rendered
+        # for Codex yet: a new handler there needs the owner's /hooks trust again.
+        item = {"hooks": [{"type": "command", "command": command, "timeout": 5}]}
+        if harness == "claude-windows":
+            item["hooks"][0]["shell"] = "powershell"
+        entries = hooks.setdefault("Stop", [])
+        if item not in entries:
+            entries.append(item)
     return settings
 
 

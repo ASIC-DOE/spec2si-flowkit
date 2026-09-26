@@ -143,7 +143,10 @@ def load_contract(path):
         require(isinstance(r, dict), "replay is an object")
         r.setdefault("oracle_files", [])
         r.setdefault("shallow", False)
-        require(set(r) <= {"fix", "oracle_files", "shallow"} and r.get("fix")
+        r.setdefault("tooling", [])
+        require(isinstance(r["tooling"], list) and all(isinstance(t, str) and t and not t.startswith(("/", "..")) for t in r["tooling"]),
+                "replay tooling lists repository paths (files or directories)")
+        require(set(r) <= {"fix", "oracle_files", "shallow", "tooling"} and r.get("fix")
                 and isinstance(r["oracle_files"], list) and isinstance(r["shallow"], bool),
                 "replay fields: fix (a commit), oracle_files (its tests, laid over the parent as the oracle) "
                 "and shallow (true hides the parent's history too)")
@@ -267,6 +270,23 @@ class Run:
         else:
             git(self.wt, "fetch", "-q", "--no-tags", os.path.abspath(repo), parent)
             git(self.wt, "checkout", "-q", "-b", self.branch, "FETCH_HEAD")
+        if r["tooling"]:
+            # The frozen task is the SOURCE; the tracker, its hooks and settings are the condition's
+            # tooling, taken as they are now (the source repository's HEAD) and laid over the base,
+            # so a re-run measures today's infrastructure on yesterday's task.
+            self.tooling_head = git(repo, "rev-parse", "HEAD").strip()
+            paths = [x for x in git(repo, "ls-tree", "-r", "--name-only", self.tooling_head, "--",
+                                    *r["tooling"]).splitlines() if x]
+            for path in paths:
+                data = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (self.tooling_head, path)],
+                                      stdout=subprocess.PIPE, check=True).stdout
+                dest = os.path.join(self.wt, *path.split("/"))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(dest, "wb") as fh:
+                    fh.write(data)
+            if paths:
+                git(self.wt, "add", "--", *paths)
+                git(self.wt, *who, "commit", "-q", "--allow-empty", "-m", "current tooling")
         for path in r["oracle_files"]:
             p = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (self.fix, path)], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)

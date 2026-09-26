@@ -22,8 +22,10 @@ GUIDANCE = ("Use the configured jobs.workflow profile for supported compute requ
             "Execution completion and tracker-verified artifacts are not an engineering pass; "
             "Report engineering pass/fail only from collect's validated engineering field; unchecked/invalid is not pass. "
             "Use ordinary transport for read-only diagnostics. Do not bypass a denial using another shell. "
-            "In a one-shot or headless session, do not end on a background poll: wait in the foreground "
-            "within a stated bound, or return the task key with the status/collect commands. "
+            "In a one-shot or headless session, do not end on a background poll: wait in the foreground with "
+            "collect --wait <seconds> (at most 540 per call; repeat while it is still pending), or, if the job "
+            "outlasts the session, end with each task key and its collect command. A Stop hook refuses to end a "
+            "session holding a job it started and never collected. "
             "A collect that is not a verified pass writes a failure report (failure_report): give the user its "
             "path and failed checks; record what you know with report --task-key K [--cause gate-fail|tool-error|"
             "transport --by agent] [--question ...]; judgement causes are the user's; failures lists open reports.")
@@ -247,6 +249,17 @@ def envelopes(value, depth=0):
                 yield from envelopes(parsed, depth + 1)
 
 
+#: How many times one session's Stop hook may refuse to end before it lets go.
+STOP_BLOCKS_MAX = 3
+TERMINAL = ("done", "failed", "killed")
+OBSERVATIONS = TERMINAL + ("submitted", "running", "unknown", "submission-unknown")
+
+
+def settled(envelope):
+    """Collected to a terminal state: a finished job whose next action is no longer `collect`."""
+    return envelope.get("observation") in TERMINAL and envelope.get("next_action") != "collect"
+
+
 def save_receipt(event, cfg, envelope):
     ref = envelope.get("reference", {})
     task = envelope.get("task_id", "")
@@ -263,6 +276,19 @@ def save_receipt(event, cfg, envelope):
     safe = {"schema": 1, "kind": "workflow", "reference": ref}
     directory = cache_dir(event, cfg)
     os.makedirs(directory, mode=0o700, exist_ok=True)
+    # Whether this session collected it, for the Stop hook. Once collected, a later status read
+    # (whose next action is "collect" again) does not make it open.
+    key = envelope.get("task_key")
+    if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", key):
+        safe["task_key"] = key
+    if envelope.get("observation") in OBSERVATIONS:
+        safe["observation"] = envelope["observation"]
+    try:
+        with open(os.path.join(directory, task + ".json"), encoding="utf-8") as fh:
+            before = json.load(fh).get("settled") is True
+    except (OSError, ValueError, AttributeError):
+        before = False
+    safe["settled"] = before or settled(envelope)
     fd, temporary = tempfile.mkstemp(dir=directory, prefix=".receipt-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -275,10 +301,84 @@ def save_receipt(event, cfg, envelope):
             os.unlink(temporary)
 
 
+def last_assistant_text(event):
+    """The session's last assistant message: the Stop event's own field, else the transcript's tail."""
+    text = event.get("last_assistant_message")
+    if isinstance(text, str):
+        return text
+    path = event.get("transcript_path")
+    if not isinstance(path, str) or not os.path.isfile(path):
+        return ""
+    with open(path, "rb") as fh:
+        fh.seek(max(0, os.path.getsize(path) - 2097152))
+        lines = fh.read().decode("utf-8", "replace").splitlines()
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        message = entry.get("message") if isinstance(entry, dict) else None
+        if isinstance(entry, dict) and entry.get("type") == "assistant" and isinstance(message, dict):
+            parts = message.get("content")
+            if isinstance(parts, str):
+                return parts
+            texts = [x.get("text", "") for x in parts or [] if isinstance(x, dict) and x.get("type") == "text"]
+            if texts:
+                return "\n".join(texts)
+    return ""
+
+
+def stop(event, cfg):
+    """Refuse to end a session that started a tracked job and never collected it.
+
+    A one-shot session that ends on a background timer leaves its own result unread (B versus C,
+    2026-09-26: 4 of 6 B runs on 1-3 minute jobs). The session may end once every job it started
+    is collected, or when its last message hands each open job off by task key (a job longer than
+    the session), or after STOP_BLOCKS_MAX refusals, so it can never be held forever.
+    """
+    directory = cache_dir(event, cfg)
+    names = sorted(n for n in os.listdir(directory)
+                   if re.fullmatch(r"task-[0-9a-f]{32}\.json", n)) if os.path.isdir(directory) else []
+    open_jobs = []
+    for name in names:
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as fh:
+                receipt = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if receipt.get("settled") is False:   # receipts from before this rule carry no field: not held
+            open_jobs.append(receipt)
+    if not open_jobs:
+        return {}
+    said = last_assistant_text(event)
+    names = [r.get("task_key") or r["reference"].get("job_id") or r["reference"]["task_id"] for r in open_jobs]
+    if all(any(x and x in said for x in (r.get("task_key"), r["reference"].get("job_id"), r["reference"]["task_id"]))
+           for r in open_jobs):
+        return {}   # handed off by name
+    counter = os.path.join(directory, "stop-blocks")
+    try:
+        with open(counter, encoding="utf-8") as fh:
+            count = int(fh.read().strip() or 0)
+    except (OSError, ValueError):
+        count = 0
+    if count >= STOP_BLOCKS_MAX:
+        return {}
+    with open(counter, "w", encoding="utf-8") as fh:
+        fh.write(str(count + 1))
+    return {"decision": "block", "reason": (
+        "This session started tracked job(s) it has not collected: " + ", ".join(names) + ". Before ending, "
+        "collect each in the foreground: " + cfg["entrypoint"] + " collect --profile <its profile> --state-dir "
+        "<its store> --task-key <key> --wait 540, and repeat while it reports still_pending. If a job will run "
+        "longer than you can wait, end instead with each task key and its collect command and say the result is "
+        "pending. Report engineering pass/fail only from a completed collect.")}
+
+
 def handle(event, cfg):
     kind = event.get("hook_event_name")
     if not in_scope(event, cfg):
         return {}
+    if kind == "Stop":
+        return stop(event, cfg)
     if kind == "SessionStart":
         directory = cache_dir(event, cfg)
         paths = sorted(os.path.join(directory, n) for n in os.listdir(directory)
