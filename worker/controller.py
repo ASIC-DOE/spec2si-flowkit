@@ -254,8 +254,13 @@ class Run:
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             with tarfile.open(fileobj=proc.stdout, mode="r|") as tar:
                 tar.extractall(self.wt, filter="data")
+            # Drain what follows the tar end marker: git archive pads to a full record, and with
+            # nobody reading, a small Windows pipe blocks it and wait() never returns (three
+            # f12 runs of the 2026-09-26 campaign hung here for over an hour).
+            proc.stdout.read()
+            err = proc.stderr.read()
             if proc.wait():
-                raise Refusal("git archive of %s failed: %s" % (parent[:12], proc.stderr.read()[-300:]))
+                raise Refusal("git archive of %s failed: %s" % (parent[:12], err[-300:]))
             git(self.wt, "checkout", "-q", "-b", self.branch)
             git(self.wt, "add", "-A")
             git(self.wt, *who, "commit", "-q", "-m", "replay base")
