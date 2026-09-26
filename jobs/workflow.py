@@ -86,6 +86,9 @@ def evidence_summary(result):
     issues = result.get("issues") or ([] if result["engineering"] in ("pass", "fail") else
                                      ["Engineering validation not established; inspect execution and artifact evidence."])
     lines += ["- " + issue for issue in issues] or ["None detected within the declared report contract."]
+    if result.get("refusal"):
+        r = result["refusal"]
+        lines += ["- Refused by the adapter (%s): %s: %s" % (r.get("stage"), r.get("error"), r.get("reason"))]
     lines += ["- Missing check: " + c for c in result.get("missing_checks", [])]
     lines += ["- Failed check: " + c for c in result.get("failed_checks", [])]
     lines += ["", "Tracker records on the selected host: `~/.asicjobs/" + str(result.get("job_id")) +
@@ -326,8 +329,19 @@ class Workflow:
                     and all(a.get("exists") is True and a.get("jobid") == ref["job_id"]
                             and re.fullmatch(r"[0-9a-f]{64}", str(a.get("sha256", ""))) for a in artifacts))
         if not complete:
+            extra = {}
+            if state == "failed":
+                # A refused run leaves no report, but its reason can still be named: the reader
+                # returns the adapter's bounded refusal (pilot.refuse) when the tracker identity holds.
+                checked = transport.evidence(dict(job_id=ref["job_id"], workspace=ref["workspace"],
+                                                  repository=ref["repository"], expected_artifacts=expected,
+                                                  report=self.profile["engineering_report"], identity=identity))
+                detail = checked.data or {}
+                if (checked.status == KNOWN and checked.rc == 0 and detail.get("kind") == "evidence"
+                        and detail.get("jobid") == ref["job_id"] and isinstance(detail.get("refusal"), dict)):
+                    extra["refusal"] = detail["refusal"]
             return self.envelope(ref, state, "inspect-evidence", "incomplete", execution_rc=result.get("rc"),
-                                 issues=["required-artifacts-missing-unstamped-or-incomplete"])
+                                 issues=["required-artifacts-missing-unstamped-or-incomplete"], **extra)
         verify = transport.verify(ref["job_id"])
         v = verify.data or {}
         verified = (verify.status == KNOWN and verify.rc == 0
@@ -354,7 +368,8 @@ class Workflow:
                              checks_passed=detail.get("checks_passed", 0),
                              checks_failed=detail.get("checks_failed", 0),
                              missing_checks=detail.get("missing_checks", []),
-                             failed_checks=detail.get("failed_checks", []))
+                             failed_checks=detail.get("failed_checks", []),
+                             **({"refusal": detail["refusal"]} if isinstance(detail.get("refusal"), dict) else {}))
 
 
 def main(argv=None):

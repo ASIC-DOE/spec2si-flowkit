@@ -32,6 +32,29 @@ def read_json(path):
     return decode(raw.decode("utf-8"))
 
 
+REFUSAL_MAX = 300
+
+
+def refusal(root, job):
+    """The adapter's refusal (pilot.refuse) -> dict(stage, error, reason) or None.
+
+    Only its own bounded fields, re-clipped and re-redacted here: a reason is the adapter's
+    message, never log bytes, and any absolute path in it is cut to its basename."""
+    path = os.path.join(root, "refusal.json")
+    try:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > 4096:
+            return None
+        data = read_json(path)
+    except (OSError, ValueError, UnicodeError):
+        return None
+    if (not isinstance(data, dict) or data.get("schema") != 1 or data.get("kind") != "refusal"
+            or data.get("job_id") != job or not all(isinstance(data.get(k), str) for k in ("stage", "error", "reason"))):
+        return None
+    clean = lambda t: re.sub(r"(?<![\w.~])/(?:[^\s/'\"]+/)+([^\s/'\"]*)", r".../\1", " ".join(t.split()))
+    return dict(stage=clean(data["stage"])[:40], error=clean(data["error"])[:60],
+                reason=clean(data["reason"])[:REFUSAL_MAX])
+
+
 def validate(contract):
     job = contract["job_id"]
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", job):
@@ -53,6 +76,10 @@ def validate(contract):
             or os.path.realpath(meta["cwd"]) != root or meta.get("expect") != expected):
         result["issues"] = ["tracker-identity-mismatch"]
         return result
+    if terminal["state"] == "failed":
+        refused = refusal(root, job)
+        if refused:
+            result["refusal"] = refused
     artifacts = terminal["artifacts"]
     if (not expected or len(artifacts) != len(expected) or
             {a["path"] for a in artifacts} != set(expected)):

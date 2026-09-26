@@ -67,6 +67,10 @@ def derive_cause(result, signatures):
     for key, what in (("license", "licence"), ("crash", "tool crash"), ("environment", "tool environment")):
         if sig.get(key):
             return "tool-error", "%d %s signature line(s) in the job's logs" % (sig[key], what)
+    r = result.get("refusal")
+    if r:
+        return "unclassified", "the adapter refused the run at its %s stage: %s: %s; judge the cause" % (
+            r.get("stage"), r.get("error"), r.get("reason"))
     hints = [k for k in ("traceback", "timeout", "memory", "disk") if sig.get(k)]
     if hints:
         return "unclassified", "log signatures: %s; judge the cause" % ", ".join(
@@ -95,7 +99,8 @@ def build(record, result, related, report_spec=None, existing=None, now=None):
                      evidence=result.get("evidence"), engineering=result.get("engineering"),
                      checks_passed=result.get("checks_passed", 0), checks_failed=result.get("checks_failed", 0),
                      failed_checks=result.get("failed_checks") or [],
-                     missing_checks=result.get("missing_checks") or [], issues=result.get("issues") or []),
+                     missing_checks=result.get("missing_checks") or [], issues=result.get("issues") or [],
+                     refusal=result.get("refusal")),
         evidence=dict(job_id=ref.get("job_id"), task_id=ref.get("task_id"), workspace=ref.get("workspace"),
                       tracker_records="~/.asicjobs/%s/{meta,status,result}.json" % ref.get("job_id"),
                       collection="collection.json", log_signatures=result.get("log_signatures")),
@@ -170,6 +175,9 @@ def markdown(report):
              "- Checks: %s passed, %s failed" % (o["checks_passed"], o["checks_failed"])]
     lines += ["- Failed check: `%s`" % x for x in o["failed_checks"]]
     lines += ["- Missing check: `%s`" % x for x in o["missing_checks"]]
+    if o.get("refusal"):
+        r = o["refusal"]
+        lines += ["- **Refused by the adapter** (%s stage): `%s`: %s" % (r.get("stage"), r.get("error"), r.get("reason"))]
     lines += ["- Issue: %s" % x for x in o["issues"]]
     sig = e.get("log_signatures")
     lines += ["", "## Evidence", "",

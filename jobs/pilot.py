@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import signal
 from pathlib import Path
 import subprocess
@@ -221,7 +222,40 @@ print(json.dumps(dict(schema=1,manifest=m)))
     return dict(profile=str(output / "profile.json"), preflight="passed", licensed_tools_used=False)
 
 
+#: A refusal reason is one line of at most this many characters.
+REFUSAL_MAX = 300
+
+
+def redact(text):
+    """One line, clipped, every absolute path cut to `.../<basename>`. A refusal reason is the
+    adapter's own message, but it can quote a path (a model include, a tool install) that must
+    stay on the cluster, as the logs do."""
+    text = " ".join(str(text).split())
+    text = re.sub(r"(?<![\w.~])/(?:[^\s/'\"]+/)+([^\s/'\"]*)", r".../\1", text)
+    return text[:REFUSAL_MAX]
+
+
+def refuse(stage, exc):
+    """Leave the refusal's reason where the tracker's evidence reader looks for it (refusal.json in the
+    job workspace). The job still fails as before; the failure report can then NAME the refusal
+    instead of showing only "execution failed" and a traceback count (study §8.2: named failure)."""
+    try:
+        write(Path.cwd() / "refusal.json", dict(schema=1, kind="refusal", job_id=os.environ.get("ASICJOBS_ID"),
+                                                stage=stage, error=type(exc).__name__, reason=redact(exc)))
+    except OSError:
+        pass
+
+
 def run(adapter, snapshot, case):
+    stage = ["identity"]
+    try:
+        return _run(adapter, snapshot, case, stage)
+    except Exception as exc:   # SystemExit (a signal) is not a refusal
+        refuse(stage[0], exc)
+        raise
+
+
+def _run(adapter, snapshot, case, stage):
     s = adapter.SPEC
     if case not in s["cases"]:
         raise ValueError("unsupported case")
@@ -239,7 +273,9 @@ def run(adapter, snapshot, case):
     for p, expected in manifest["files"].items():
         copy_checked(snapshot / p, work / "source" / p, expected)
     rec.progress(0, 2, "stages")
+    stage[0] = "execute"
     checks = adapter.execute(work, case, manifest)
+    stage[0] = "checks"
     rec.progress(1, 2, "stages")
     verify(snapshot, manifest)
     required = {(n, c) for n in s["checks"] for c in s["corners"]}
