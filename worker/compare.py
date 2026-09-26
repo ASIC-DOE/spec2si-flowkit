@@ -35,15 +35,41 @@ def plan(contracts, repeats, seed):
                 items=items)
 
 
+def invalid(outcome):
+    """A run that never reached its condition: the base's gates failed before any session or round
+    (on 2026-09-26 a two-process race test flaked under the campaign's parallel load). It says
+    nothing about B or C, so it is excluded from the score and its item runs again."""
+    return outcome.get("stage") == "baseline"
+
+
 def done_items(state_dir):
+    """item -> its latest valid record."""
     path = os.path.join(state_dir, "progress.jsonl")
     done = {}
     if os.path.exists(path):
         for line in open(path, encoding="utf-8"):
             rec = json.loads(line)
-            if rec.get("outcome"):
-                done[rec["item"]] = rec
+            if not rec.get("outcome"):
+                continue
+            with open(rec["outcome"], encoding="utf-8") as fh:
+                if invalid(json.load(fh)):
+                    continue
+            done[rec["item"]] = rec
     return done
+
+
+def invalid_runs(state_dir):
+    path = os.path.join(state_dir, "progress.jsonl")
+    runs = []
+    if os.path.exists(path):
+        for line in open(path, encoding="utf-8"):
+            rec = json.loads(line)
+            if rec.get("outcome"):
+                with open(rec["outcome"], encoding="utf-8") as fh:
+                    o = json.load(fh)
+                if invalid(o):
+                    runs.append(o["run"])
+    return runs
 
 
 _lock = threading.Lock()
@@ -127,7 +153,10 @@ def score(state_dir):
         lines.append("| %s | %d/%d | %d | %d | %.0f | %.2f |" % (cond, s["acc"], s["n"], s["false"], s["scope"],
                                                                 s["minutes"], s["cost"]))
     versions = sorted({"%s %s" % (r["harness"], r["harness_version"]) for r in rows})
-    lines += ["", "Harness versions: " + "; ".join(versions) + ".", ""]
+    lines += ["", "Harness versions: " + "; ".join(versions) + "."]
+    bad = invalid_runs(state_dir)
+    lines += ["Invalid runs (the base's gates failed before the condition ran; excluded and re-run): %s." % (
+        ", ".join(bad) if bad else "none"), ""]
     return "\n".join(lines)
 
 

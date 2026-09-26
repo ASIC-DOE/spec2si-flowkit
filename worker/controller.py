@@ -273,6 +273,25 @@ class Run:
             text = open(raw, encoding="utf-8", errors="replace").read()
         except (OSError, TypeError):
             return ["transcript unreadable"]
+        # Only what the worker ASKED for: Claude's tool inputs, Codex's commands. A tool result can
+        # quote a path it never visited (every B-versus-C f5 run read controller.py, whose
+        # docstring names the state directory); without recognizable events, scan everything.
+        asked = []
+        for line in text.splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            for part in ((e.get("message") or {}).get("content") or []) if e.get("type") == "assistant" else []:
+                if isinstance(part, dict) and part.get("type") == "tool_use":
+                    asked.append(json.dumps(part.get("input")))
+            item = e.get("item") or {}
+            if item.get("type") == "command_execution" and e.get("type") == "item.started":
+                asked.append(str(item.get("command")))
+        if asked:
+            text = "\n".join(asked)
         norm = text.replace("\\\\", "/").replace("\\", "/").lower()
         root = os.path.dirname(os.path.abspath(self.c["repo"])).replace("\\", "/").lower().rstrip("/")
         own = os.path.abspath(self.dir).replace("\\", "/").lower()

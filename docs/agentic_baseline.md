@@ -4,8 +4,8 @@ genre: study
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-24
-summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated. tsmc65, 24 sessions over 25 days, 0 tracked: 375 licensed-tool launches, 607 other cluster compute runs, 5,197 cluster reads, 12.2 hours of in-command sleep, 61 kills. None of the 965 harvested attempts in four repos has a declared failure cause. Also the re-measurement plan and the B-versus-C design on frozen implementation tasks.
+updated: 2026-09-26
+summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated. tsmc65, 24 sessions over 25 days, 0 tracked: 375 licensed-tool launches, 607 other cluster compute runs, 5,197 cluster reads, 12.2 hours of in-command sleep, 61 kills. None of the 965 harvested attempts in four repos has a declared failure cause. Also the re-measurement plan, the B-versus-C design on frozen implementation tasks, and its first measurement (2026-09-26, six local tasks): B and C tie at 18/18 each.
 -->
 
 # Agentic workflow baseline — condition A
@@ -178,6 +178,65 @@ budget, cause class, and the question for exploration.
 
 **Decision.** Adopt C for a task family only where it beats B enough to pay for
 its upkeep (study §8.3). If B captures most of the benefit, stop at B.
+
+## B versus C on the local frozen tasks (2026-09-26)
+
+The first measurement, on the six **local** tasks of the frozen set
+(`worker/contracts/frozen/`): each is a blind replay of a fix merged during
+§9.2 (`8b8305b`, `2c9d45c`, `7d71074`, `149ea4f`, `acbb85d`, `1e51c95`),
+three with Claude Code and three with Codex, judged by the fix's own
+acceptance test plus a regression suite. **C** is the worker (up to 3 rounds,
+schema, scope enforced, the controller's gates between rounds); **B** is one
+ordinary headless session in the same blind workspace, briefed with the same
+goal, paths and gate commands, ending with a `STATUS:` line, then judged by
+the same gates (scope measured, protected files restored before judging).
+Budget for both: $6 and 45 minutes. Three repeats per task and condition in a
+seeded random order (`worker/compare.py`, seed 20260926), three at a time;
+no licensed runs.
+
+| Task | Harness | Cond. | Accepted | False acceptance | Scope excursions | Claimed done / blocked | Rounds | Minutes (mean) | Cost $ (mean) | Tokens (mean) |
+|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|
+| f1-guard-order | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0.5 | 0.27 | - |
+| f1-guard-order | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0.5 | 0.25 | - |
+| f2-parameters-file | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.5 | 0.00 | 291k |
+| f2-parameters-file | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.9 | 0.00 | 378k |
+| f3-mangled-parameters | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 1.7 | 0.24 | - |
+| f3-mangled-parameters | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 1.7 | 0.24 | - |
+| f4-unpackaged-tests | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.4 | 0.00 | 266k |
+| f4-unpackaged-tests | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.0 | 0.00 | 252k |
+| f5-codex-tokens | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 1.6 | 0.34 | - |
+| f5-codex-tokens | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 1.5 | 0.33 | - |
+| f6-report-note | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.7 | 0.00 | 390k |
+| f6-report-note | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 2.8 | 0.00 | 453k |
+
+| Condition | Accepted | False acceptances | Scope excursions | Minutes (total) | Claude $ (total) |
+|---|---:|---:|---:|---:|---:|
+| B | 18/18 | 0 | 0 | 34 | 2.53 |
+| C | 18/18 | 0 | 0 | 34 | 2.44 |
+
+**Reading.** On small, decided tasks with a precise acceptance test, **B and C
+are indistinguishable**: every run of both passed on its first attempt (C
+never needed a second round), neither touched anything outside its paths or
+claimed done falsely, and time, dollars and tokens are within noise. Patch
+sizes match too (B's Codex-token patches ran 20–25 changed lines against C's
+11–18; everything else within a line or two). There were no non-passes, so
+failure-report completeness was not exercised. By the study's §8.3 rule, **for
+this task family B captures the benefit** and C's controller buys nothing
+measurable. C's machinery earns its keep, if anywhere, where the local set
+cannot reach: tracked gates whose licensed runs need bounding, diagnoses that
+need evidence between rounds, and tasks that should end in a stop.
+
+**Caveats.**
+- Easy tasks: each was already solved once by a worker in one round.
+- Codex updated itself mid-campaign (6 runs on 0.155, 12 on 0.158; spread
+  over both conditions). `WORKER_CODEX_EXE` now pins a build.
+- One run was invalid and re-run: the base's regression suite failed before
+  the B session started (`test_two_processes_share_one_reservation`, a
+  two-process race test, flaked under the campaign's parallel load).
+- The replay audit first flagged one path in every f5 run of both conditions:
+  a path quoted in a file the worker read (the controller's docstring), not a
+  path it visited. The audit now reads tool inputs and commands only; all
+  transcripts re-audit clean.
 
 ## Re-running this page
 

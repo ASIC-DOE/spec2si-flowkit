@@ -115,6 +115,10 @@ def run_plain(name, prompt, cwd, budget_usd, timeout, record_dir, model=None, sh
 
 
 def codex_exe():
+    # WORKER_CODEX_EXE pins one build: Codex updates itself, and the B-versus-C
+    # campaign of 2026-09-26 ran 6 of its Codex runs on 0.155 and 12 on 0.158.
+    if os.environ.get("WORKER_CODEX_EXE"):
+        return os.environ["WORKER_CODEX_EXE"]
     found = glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""), "OpenAI", "Codex", "bin", "*", "codex.exe"))
     return sorted(found, key=os.path.getmtime)[-1] if found else shutil.which("codex")
 

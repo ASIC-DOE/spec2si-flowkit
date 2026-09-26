@@ -401,6 +401,23 @@ class Replay(Fixture):
                                  stdout=subprocess.PIPE, universal_newlines=True).stdout
         self.assertNotIn(parent, objects)       # not even the parent commit object: no message to read
 
+    def test_the_audit_reads_what_was_asked_not_what_came_back(self):
+        from worker.controller import Run as R
+        run = R.__new__(R)
+        run.dir, run.c = os.path.join(self.root, "state", "run-x"), dict(repo=self.repo)
+        outside = os.path.join(self.repo, "calc.py").replace("\\", "/")
+        raw = os.path.join(self.root, "t.jsonl")
+        events = [dict(type="assistant", message=dict(content=[dict(type="tool_use", name="Read",
+                                                                    input=dict(file_path=run.dir + "/worktree/a.py"))])),
+                  dict(type="user", message=dict(content=[dict(type="tool_result", content="see " + outside)]))]
+        with open(raw, "w") as fh:
+            fh.write("\n".join(json.dumps(e) for e in events) + "\n")
+        self.assertEqual([], run.audit(raw))               # quoted in a result, never visited
+        events[0]["message"]["content"][0]["input"]["file_path"] = outside
+        with open(raw, "w") as fh:
+            fh.write("\n".join(json.dumps(e) for e in events) + "\n")
+        self.assertEqual(1, len(run.audit(raw)))
+
     def test_the_oracle_is_protected(self):
         out = self.replay([({"check_accept.py": "print('accept ok')\n"}, proposal(), 0.5)])
         self.assertEqual(("stopped", "scope"), (out["status"], out["stage"]))
