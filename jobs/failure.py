@@ -125,6 +125,8 @@ def declare(report, cause=None, by=None, note=None, contradicts=None, question=N
         report["cause"]["declared"].append(dict(cause=cause, by=by, when=now, note=clip(note)))
         report["cause"]["current"] = cause
     ex = report["exploration"]
+    if note is not None and cause is None:
+        ex["history"].append(dict(field="note", value=clip(note), by=by or "unspecified", when=now))
     for key, value in (("contradicts", contradicts), ("question", question)):
         if value is not None:
             ex[key] = clip(value)
@@ -187,7 +189,10 @@ def markdown(report):
               for d in cause["declared"]]
     lines += ["", "## For exploration", "",
               "- Contradicts: %s" % (ex["contradicts"] or "*not yet stated*"),
-              "- Question: %s" % (ex["question"] or "*not yet stated*"), ""]
+              "- Question: %s" % (ex["question"] or "*not yet stated*")]
+    lines += ["- Note %s by %s: %s" % (when(h["when"]), h["by"], h["value"])
+              for h in ex["history"] if h["field"] == "note"]
+    lines += [""]
     lines += ["Record judgement with `jobs.workflow report --task-key %s --cause <class> --by human|agent "
               "[--contradicts ...] [--question ...] [--close ...]`. An agent may declare only %s." % (
                   report["task_key"], ", ".join(MECHANICAL)), ""]

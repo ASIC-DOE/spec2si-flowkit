@@ -375,7 +375,7 @@ def main(argv=None):
                                         "stale-artifact, silent-pass, abandoned)")
     parser.add_argument("--by", choices=("human", "agent"), help="report: who declares; an agent may declare "
                                                                  "only gate-fail, tool-error or transport")
-    parser.add_argument("--note", help="report: one short line with the cause")
+    parser.add_argument("--note", help="report: one short line with the cause, or an exploration note without --cause")
     parser.add_argument("--contradicts", help="report: the decision or assumption the failure contradicts")
     parser.add_argument("--question", help="report: the question for the next exploration round")
     parser.add_argument("--close", help="report: exploration has answered it; say how")
@@ -401,8 +401,8 @@ def main(argv=None):
         elif args.operation == "report":
             from .state import TaskStore
             require(args.state_dir is not None and args.task_key is not None, "state-dir and task-key required")
-            require(any(v is not None for k, v in declaring.items() if k not in ("by", "note")),
-                    "report needs --cause, --contradicts, --question or --close")
+            require(any(v is not None for k, v in declaring.items() if k != "by"),
+                    "report needs --cause, --note, --contradicts, --question or --close")
             result = TaskStore(args.state_dir).declare_failure(args.task_key, **declaring)
         elif (args.state_dir or args.task_key) and args.reference is None:
             from .state import TaskStore, bind_source
