@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-26
-summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated. tsmc65, 24 sessions over 25 days, 0 tracked: 375 licensed-tool launches, 607 other cluster compute runs, 5,197 cluster reads, 12.2 hours of in-command sleep, 61 kills. None of the 965 harvested attempts in four repos has a declared failure cause. Also the re-measurement plan, the B-versus-C design on frozen implementation tasks, and its first measurement (2026-09-26, six local tasks): B and C tie at 18/18 each.
+summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated. tsmc65, 24 sessions over 25 days, 0 tracked: 375 licensed-tool launches, 607 other cluster compute runs, 5,197 cluster reads, 12.2 hours of in-command sleep, 61 kills. None of the 965 harvested attempts in four repos has a declared failure cause. Also the re-measurement plan, the B-versus-C design on frozen implementation tasks, and its measurement (2026-09-26): B and C tie at 18/18 on six local tasks and 4/4 on two tracked ones, where C used less time, money and handling.
 -->
 
 # Agentic workflow baseline — condition A
@@ -237,6 +237,68 @@ need evidence between rounds, and tasks that should end in a stop.
   a path quoted in a file the worker read (the controller's docstring), not a
   path it visited. The audit now reads tool inputs and commands only; all
   transcripts re-audit clean.
+
+## B versus C on the tracked frozen tasks (2026-09-26)
+
+The owner approved a small licensed set (about 12–16 short runs). Two tasks,
+both with Claude Code, so B's session could reach the cluster (Codex's sandbox
+has no network):
+
+- **f7-ota-fault**: sky130 OTA with an injected fault (XM5's gate on vdd), a
+  diagnosis through the tracked run; three repeats per condition.
+- **f8-buffer-stop**: xt011's buffer linearity, where the right answer is a
+  **stop** with a design question; one repeat per condition.
+
+Both conditions start from the **recorded** baseline run (its failure report and
+`native.json`, closing notes removed), so no baseline run is spent per repeat.
+C's gates are the controller's tracked runs (at most 2 per run). B gets a profile
+of the base, its own task store and the tracker commands, may launch up to 2
+runs itself, and one more controller run judges its final state (skipped when it
+changed nothing). Seeded order, two at a time. **10 licensed runs in all.**
+
+| Task | Harness | Cond. | Correct | False acceptance | Scope excursions | Claimed done / blocked | Rounds | Licensed runs (total) | Minutes (mean) | Cost $ (mean) | Tokens (mean) |
+|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| f7-ota-fault | claude | B | 3/3 | 0 | 0 | 2 / 1 | 1.0 | 5 | 1.6 | 0.41 | - |
+| f7-ota-fault | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 0.9 | 0.29 | - |
+| f8-buffer-stop | claude | B | 1/1 | 0 | 0 | 0 / 1 | 1.0 | 2 | 5.2 | 3.11 | - |
+| f8-buffer-stop | claude | C | 1/1 | 0 | 0 | 0 / 1 | 1.0 | 0 | 0.7 | 1.30 | - |
+
+| Condition | Correct | False acceptances | Scope excursions | Licensed runs | Minutes (total) | Claude $ (total) |
+|---|---:|---:|---:|---:|---:|---:|
+| B | 4/4 | 0 | 0 | 7 | 10 | 4.32 |
+| C | 4/4 | 0 | 0 | 3 | 4 | 2.18 |
+
+B's 7 licensed runs are 3 of its own and 4 judging runs; a chat session in
+ordinary use would not have the judging run, so **own launches are 3 for B and 3
+for C**.
+
+**Reading.**
+- **Correctness ties**: both fixed the injected fault in every repeat, and both
+  stopped on the buffer task with the right design question. No false
+  acceptance and no scope excursion in either.
+- **C was cheaper and quicker to a trusted answer**: 4 minutes and $2.18 in all,
+  against 10 minutes and $4.32 for B (6 minutes without the judging runs).
+- **B's self-checking is fragile headless.** In one f7 repeat B's commands
+  drifted (an early `cd`, then absolute paths), no longer matched its shell
+  allowance, and every packaging attempt needed approval a headless session
+  cannot get. It said so honestly and ended `STATUS: blocked`; its fix was
+  right, but only the judging run showed it. C never depends on the model's
+  permissions to run a gate.
+- **On the stop task the handoff differs.** C stopped in one round without a
+  licensed run and wrote a failure report with every §4.11 part: contract and
+  failed checks, evidence (the fetched numbers), attempts and budget, a cause,
+  observations kept apart from hypotheses, and a three-option question. B
+  reached the same conclusion in prose (the numbers, three options, the job key
+  of its run), but spent $3.11, left 56 lines of uncommitted instrumentation in
+  the bench and scorer, and ended with its own cluster job still running and
+  uncollected (collected afterwards: fail, as expected). Its answer has no
+  cause class and no attempt record.
+
+**Decision (§8.3), provisional on a small sample** (4 runs per condition):
+use **B** for small, decided local tasks (it ties C at no upkeep), and **C**
+where tracked gates, licensed runs, diagnoses or expected stops are involved:
+there it matched B's correctness with less time, money and loose ends, and
+its stop is the structured handoff that opens the next exploration round.
 
 ## Re-running this page
 

@@ -98,12 +98,12 @@ def run_item(item, state_dir):
     return rec
 
 
-def run(plan_path, state_dir, parallel):
+def run(plan_path, state_dir, parallel, limit=None):
     with open(plan_path, encoding="utf-8") as fh:
         p = json.load(fh)
     os.makedirs(state_dir, exist_ok=True)
     done = done_items(state_dir)
-    todo = [i for i in p["items"] if i["item"] not in done]
+    todo = [i for i in p["items"] if i["item"] not in done][:limit]
     print("%d of %d items to run" % (len(todo), len(p["items"])), flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
         list(pool.map(lambda i: run_item(i, state_dir), todo))
@@ -190,6 +190,7 @@ def main(argv=None):
     b.add_argument("--plan", required=True)
     b.add_argument("--state-dir", required=True)
     b.add_argument("--parallel", type=int, default=3)
+    b.add_argument("--limit", type=int, help="run at most this many pending items")
     c = sub.add_parser("score")
     c.add_argument("--state-dir", required=True)
     c.add_argument("--out")
@@ -204,7 +205,7 @@ def main(argv=None):
             json.dump(plan(args.contracts, args.repeats, args.seed), fh, indent=1)
         print(args.out)
     elif args.op == "run":
-        run(args.plan, args.state_dir, args.parallel)
+        run(args.plan, args.state_dir, args.parallel, args.limit)
     else:
         text = score(args.state_dir)
         if args.out:

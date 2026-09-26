@@ -50,18 +50,17 @@ sky130 `docs/tracked_jobs.md`.
 
 ## START HERE: the B-versus-C comparison (study §8)
 
-**Where it stands (2026-09-26, later):** the runner exists (`worker/compare.py`,
-`worker.controller --condition B`) and the **local half is measured: B and C
-tie, 18/18 each** (no false acceptance, no scope excursion, same time and cost;
-[agentic_baseline.md](agentic_baseline.md), "B versus C on the local frozen
-tasks"). Campaign records: `C:/dev/.spec2si-job-state/compare-20260926/`
-(plan, progress, score, one directory per run). **Next is the tracked half,
-which needs the owner's go-ahead on its licensed-run count** (the proposal is
-in the session that ran the local half; a small set is one sky130 diagnosis
-task and the xt011 stop task, about 12–16 short runs). Two pieces of code come
-first: a frozen tracked baseline (both conditions get the recorded failure
-report, so no baseline run per repeat) and B for tracked tasks (B launches and
-collects through the tracker itself, on a profile the controller deploys).
+**Where it stands (2026-09-26, evening): measured.** The runner exists
+(`worker/compare.py`, `worker.controller --condition B`). Local half: **B and C
+tie, 18/18 each**. Tracked half (owner-approved, 10 licensed runs): **4/4 each**,
+C with less time and money, B once blocked by its own shell allowance, and on
+the stop task C's structured failure report against B's prose, stray edits and
+an uncollected job. Provisional decision: B for small local tasks, C for
+tracked, diagnosis and stop tasks. Details: [agentic_baseline.md](agentic_baseline.md).
+Records: `C:/dev/.spec2si-job-state/compare-20260926/` and
+`.../compare-tracked-20260926/`. **What is left of §8**: a larger sample if the
+decision needs it (ask about licences first), and the re-measurement of ordinary
+use from 2026-10-09.
 
 **§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read
 [worker/README.md](../worker/README.md) first: design, contracts, tracked
