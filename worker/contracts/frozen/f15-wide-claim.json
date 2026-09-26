@@ -1,0 +1,65 @@
+{
+ "schema": 1,
+ "id": "f15-wide-claim",
+ "kind": "maintenance",
+ "goal": "routekit/solve.py: the wide-metal parallel-run rule measures a claim's overlap with the query, but the maze queries one 0.240 um step at a time, every step is under the 0.400 um threshold, and a net can walk the whole length of a wide neighbour's band one legal-looking step at a time. Bound the parallel run by the claim's own metal length instead: a claim too short to run parallel (a 0.380 um via pad) is never wide, and a long claim charges the wide rule to whoever comes near it. The acceptance test routekit/test_solve.py states the decision.",
+ "repo": "C:/dev/spec2si-tsmc65",
+ "replay": {
+  "fix": "571c5a30",
+  "oracle_files": [
+   "routekit/test_solve.py"
+  ],
+  "shallow": true
+ },
+ "context": [
+  "routekit/solve.py",
+  "routekit/test_solve.py"
+ ],
+ "editable": [
+  "routekit/solve.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "routekit/test_solve.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "routekit",
+    "--ignore=routekit/test_solve.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "codex",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of tsmc65 571c5a30 (mined; vetted)"
+}

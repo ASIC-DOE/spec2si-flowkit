@@ -1,0 +1,65 @@
+{
+ "schema": 1,
+ "id": "f13-macro-gds-shared",
+ "kind": "maintenance",
+ "goal": "analog/engine/layout/macro_gds.py: when a macro's donor GDS is spliced into an assembly, a structure the macro shares with a DIFFERENT child of the assembly is not dropped, so the donor's copy is appended on top of it and Calibre refuses the file ('Another cell record encountered for cell ...'). Implement what the docstring already says: a structure the macro shares with anything else in the assembly is replaced by the donor's copy and emitted once; differing bytes are expected and counted; two donors that disagree about a structure still raise. The acceptance test analog/engine/layout/test_macro_gds.py states the decision.",
+ "repo": "C:/dev/spec2si-tsmc28",
+ "replay": {
+  "fix": "554b732",
+  "oracle_files": [
+   "analog/engine/layout/test_macro_gds.py"
+  ],
+  "shallow": true
+ },
+ "context": [
+  "analog/engine/layout/macro_gds.py",
+  "analog/engine/layout/test_macro_gds.py"
+ ],
+ "editable": [
+  "analog/engine/layout/macro_gds.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/layout/test_macro_gds.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/layout/test_abstract_svg.py",
+    "analog/engine/layout/test_abstract.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "codex",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of tsmc28 554b732 (mined; vetted)"
+}

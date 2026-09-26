@@ -1,0 +1,65 @@
+{
+ "schema": 1,
+ "id": "f11-stats-report",
+ "kind": "maintenance",
+ "goal": "analog/engine/char/mismatch_mc.py: the reporting loop treats any dict in the results as a stats block and indexes v['n'], so the clock experiment's per-node results (a dict OF stats blocks) raise KeyError after every Spectre run has finished. Add _print_stat(label, v, indent) that prints a stats block (one with all of n, mean, sigma, min, max), recurses into a dict of them, and passes anything else through; use it in the reporting loop. Test the shape, not the type. The acceptance test analog/engine/char/test_mismatch_mc.py states the decision.",
+ "repo": "C:/dev/spec2si-tsmc28",
+ "replay": {
+  "fix": "c440123",
+  "oracle_files": [
+   "analog/engine/char/test_mismatch_mc.py"
+  ],
+  "shallow": true
+ },
+ "context": [
+  "analog/engine/char/mismatch_mc.py",
+  "analog/engine/char/test_mismatch_mc.py"
+ ],
+ "editable": [
+  "analog/engine/char/mismatch_mc.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/char/test_mismatch_mc.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/char",
+    "--ignore=analog/engine/char/test_mismatch_mc.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "codex",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of tsmc28 c440123 (mined; vetted)"
+}

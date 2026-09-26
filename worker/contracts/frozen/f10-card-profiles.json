@@ -1,0 +1,65 @@
+{
+ "schema": 1,
+ "id": "f10-card-profiles",
+ "kind": "maintenance",
+ "goal": "routekit.card's validate() false-alarms on a conforming routing card written in the per-layer profile (routing_layers and vias keyed by layer, as sky130's gridcard is), because it knows only the family profile. Make validate() accept both conforming profiles, and name a card of a different kind (stack, device, RC, EM, density) NOT-A-ROUTING-CARD instead of judging it against a routing shape it never claimed. The acceptance test routekit/test_card.py states the decision.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "replay": {
+  "fix": "275c162",
+  "oracle_files": [
+   "routekit/test_card.py"
+  ],
+  "shallow": false
+ },
+ "context": [
+  "routekit/card.py",
+  "routekit/test_card.py"
+ ],
+ "editable": [
+  "routekit/card.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "routekit/test_card.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "routekit",
+    "--ignore=routekit/test_card.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of flowkit 275c162 (mined; vetted)"
+}

@@ -1,0 +1,66 @@
+{
+ "schema": 1,
+ "id": "f9-license-lumerical",
+ "kind": "maintenance",
+ "goal": "jobs/bin/license.py does not see Ansys Lumerical licences. They sit on their own server, named by ANSYSLMD_LICENSE_FILE, a variable the licence scanner does not read, so a job waiting on the site's single Lumerical seat would be reported as a hang, not as waiting for a licence. Make the scanner read ANSYSLMD_LICENSE_FILE with the other licence variables, and know the Lumerical features (interconnect, lumerical_gui, lumerical_solve; one seat each). The acceptance test jobs/test_license.py states the decision.",
+ "repo": "C:/dev/spec2si-flowkit",
+ "replay": {
+  "fix": "b74e100",
+  "oracle_files": [
+   "jobs/test_license.py"
+  ],
+  "shallow": false
+ },
+ "context": [
+  "jobs/bin/license.py",
+  "jobs/test_license.py"
+ ],
+ "editable": [
+  "jobs/bin/license.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs/test_license.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "jobs",
+    "--ignore=jobs/test_isolated_bundle.py",
+    "--ignore=jobs/test_license.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "codex",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of flowkit b74e100 (mined; vetted)"
+}

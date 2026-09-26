@@ -1,0 +1,64 @@
+{
+ "schema": 1,
+ "id": "f12-abstract-purposes",
+ "kind": "maintenance",
+ "goal": "analog/engine/layout/abstract.py: shapes_from_gds reads both the drawing and the net (pin-label) purposes, so the LEF/GDS port-coverage check believes a port is covered when only a pin-purpose shape lies under it; Calibre does not (a cut on M3_PIN is a cut on nothing). Let the caller say which purposes it asks about, keep the default reading both (right for an obstruction), and make the coverage check ask for drawing only. The acceptance test analog/engine/layout/test_abstract.py states the decision.",
+ "repo": "C:/dev/spec2si-tsmc28",
+ "replay": {
+  "fix": "f206d39",
+  "oracle_files": [
+   "analog/engine/layout/test_abstract.py"
+  ],
+  "shallow": true
+ },
+ "context": [
+  "analog/engine/layout/abstract.py",
+  "analog/engine/layout/test_abstract.py"
+ ],
+ "editable": [
+  "analog/engine/layout/abstract.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/layout/test_abstract.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/layout/test_abstract_svg.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of tsmc28 f206d39 (mined; vetted)"
+}

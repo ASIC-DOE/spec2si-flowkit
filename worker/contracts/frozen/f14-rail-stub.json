@@ -1,0 +1,65 @@
+{
+ "schema": 1,
+ "id": "f14-rail-stub",
+ "kind": "maintenance",
+ "goal": "analog/engine/schematic/render_svg.py: a rail stub is checked against every OTHER device only, so a terminal whose stub to its rail runs through its own device is accepted (a capacitor's bottom terminal reaching up to vdd runs through its own plates; a FET's drain or source likewise). A stub must also leave on the side of its own device that faces the rail: the same near/far reasoning as _drop_ok, against a rail instead of a trunk. The acceptance test analog/engine/schematic/test_render_svg.py states the decision.",
+ "repo": "C:/dev/spec2si-tsmc65",
+ "replay": {
+  "fix": "d58cb9a0",
+  "oracle_files": [
+   "analog/engine/schematic/test_render_svg.py"
+  ],
+  "shallow": true
+ },
+ "context": [
+  "analog/engine/schematic/render_svg.py",
+  "analog/engine/schematic/test_render_svg.py"
+ ],
+ "editable": [
+  "analog/engine/schematic/render_svg.py"
+ ],
+ "protected": [],
+ "gates": [
+  {
+   "name": "acceptance",
+   "acceptance": true,
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/schematic/test_render_svg.py"
+   ],
+   "timeout": 600
+  },
+  {
+   "name": "regression",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "analog/engine/schematic",
+    "--ignore=analog/engine/schematic/test_render_svg.py"
+   ],
+   "timeout": 900
+  }
+ ],
+ "budget": {
+  "rounds": 3,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 2.5
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "frozen": "B-versus-C local task set, widened 2026-09-26: a replay of tsmc65 d58cb9a0 (mined; vetted)"
+}
