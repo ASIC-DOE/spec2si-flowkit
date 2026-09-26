@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-26
-summary: Where the agentic workflow plan stands at the end of 2026-09-26 and what to do next. START HERE: the rest of §8 -- a bigger B-versus-C sample (the owner asked for it), fewer judging runs, condition D, then the ordinary-use re-measurement from 2026-10-09. Done: §9.2 (ten reviewed worker attempts) and a first B-versus-C measurement (tie 18/18 on local tasks, 4/4 on tracked ones with C cheaper). Includes the commands, paths and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-26 and what to do next. START HERE: §8's B-versus-C comparison is done (19 tasks, 118 runs; tie on local tasks, C cheaper and cleaner on tracked ones); next is closing B's one-shot trap, the ordinary-use re-measurement from 2026-10-09 and report upkeep. §9.2 (ten reviewed worker attempts) is done. Includes the commands, paths and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -50,32 +50,26 @@ sky130 `docs/tracked_jobs.md`.
 
 ## START HERE: the B-versus-C comparison (study §8)
 
-**Where it stands (2026-09-26, evening): measured.** The runner exists
-(`worker/compare.py`, `worker.controller --condition B`). Local half: **B and C
-tie, 18/18 each**. Tracked half (owner-approved, 10 licensed runs): **4/4 each**,
-C with less time and money, B once blocked by its own shell allowance, and on
-the stop task C's structured failure report against B's prose, stray edits and
-an uncollected job. Provisional decision: B for small local tasks, C for
-tracked, diagnosis and stop tasks. Details: [agentic_baseline.md](agentic_baseline.md).
-Records: `C:/dev/.spec2si-job-state/compare-20260926/` and
-`.../compare-tracked-20260926/`. **What is left of §8 (the owner, 2026-09-26: "a bigger sample seems called
-for to firm up the initial conclusions"):**
+**Where it stands (end of 2026-09-26): §8's comparison is done.** 19 frozen tasks
+(13 local, 6 tracked), 118 runs, B and C correct on every run, no false
+acceptance. Local tasks tie; on tracked tasks C took 44 % less time and half the
+model cost and left no loose ends. Decision: B for small decided local tasks, C
+for tracked, diagnosis and stop tasks. Condition D assessed per task. Everything
+is in [agentic_baseline.md](agentic_baseline.md) ("B versus C on the widened
+set"); campaign records under `C:/dev/.spec2si-job-state/compare-*-20260926/`.
+The frozen sets are `worker/contracts/frozen/` and `worker/contracts/frozen-tracked/`
+(scratch fault branches `worker-fault/*` in sky130 and tsmc65 stay local).
 
-1. **Widen the frozen set toward the study's 12–20 tasks** (§8.1), spanning
-   maintenance, diagnosis and §8.2's fault injections (wrong top, stale
-   artifact, truncated report, missing corner, changed deck, protected-checker
-   edit, licence exhaustion, connection loss). Local replays are free: mine the
-   repos for small fix+test commits. Tracked tasks cost licences: **size the
-   licensed part and ask before running it** ([[spread-cluster-jobs]] rule:
-   ask past ~10 runs; run two at a time).
-2. **Spend fewer judging runs:** when B's own last collected run was on the
-   same packaged source as its final state, reuse that tracker verdict instead
-   of a new judging run (the verdict is the tracker's, not B's claim).
-3. **Condition D** (a deterministic script, "where applicable"): for each
-   task, record whether an existing deterministic check already names the
-   cause (a Genus warning, a netlist-versus-spec comparison), without writing a
-   checker per injected fault after the fact.
-4. **Re-measure ordinary use from 2026-10-09** (below).
+**Next, in order:**
+
+1. **Close B's one-shot trap** (the comparison's main B weakness): 4 of 6 B
+   runs on the 1–3 minute jobs ended on a background timer without collecting
+   their own run. The SessionStart guidance already forbids it; try enforcing it
+   (a Stop hook that refuses to end a session holding an uncollected task key
+   from this session, or an explicit foreground wait in the guides), then re-run
+   f18/f19 under B to see whether it closes.
+2. **Re-measure ordinary use from 2026-10-09** (below).
+3. **Report upkeep** (below), now with the §8 result to summarize first.
 
 **§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read
 [worker/README.md](../worker/README.md) first: design, contracts, tracked

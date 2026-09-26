@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-26
-summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated. tsmc65, 24 sessions over 25 days, 0 tracked: 375 licensed-tool launches, 607 other cluster compute runs, 5,197 cluster reads, 12.2 hours of in-command sleep, 61 kills. None of the 965 harvested attempts in four repos has a declared failure cause. Also the re-measurement plan, the B-versus-C design on frozen implementation tasks, and its measurement (2026-09-26): B and C tie at 18/18 on six local tasks and 4/4 on two tracked ones, where C used less time, money and handling.
+summary: The §8 condition-A baseline of the agentic workflow study, measured from surviving session transcripts before the tracker was activated (tsmc65: 24 sessions, 0 tracked, 375 licensed launches, 12.2 h of in-command sleep), and the B-versus-C comparison on 19 frozen implementation tasks, 118 runs (2026-09-26): both conditions correct on every run with no false acceptance; on the six tracked tasks C took 44 % less time and half the model cost, and left no loose ends. Decision: B for small decided local tasks, C for tracked, diagnosis and stop tasks.
 -->
 
 # Agentic workflow baseline — condition A
@@ -179,7 +179,7 @@ budget, cause class, and the question for exploration.
 **Decision.** Adopt C for a task family only where it beats B enough to pay for
 its upkeep (study §8.3). If B captures most of the benefit, stop at B.
 
-## B versus C on the local frozen tasks (2026-09-26)
+## B versus C on the local frozen tasks (2026-09-26, first measurement)
 
 The first measurement, on the six **local** tasks of the frozen set
 (`worker/contracts/frozen/`): each is a blind replay of a fix merged during
@@ -299,6 +299,127 @@ use **B** for small, decided local tasks (it ties C at no upkeep), and **C**
 where tracked gates, licensed runs, diagnoses or expected stops are involved:
 there it matched B's correctness with less time, money and loose ends, and
 its stop is the structured handoff that opens the next exploration round.
+
+## B versus C on the widened set: 19 tasks, 118 runs (2026-09-26)
+
+The owner asked for a bigger sample. The frozen set grew to **19 tasks**, inside
+the study's 12–20: **13 local** (six from §9.2 plus seven mined from the repos'
+histories and vetted: the fix's test fails at its parent, passes with the fix,
+runs on Windows) and **6 tracked** (the sky130 injected fault and the xt011
+stop task with more repeats, plus four from §8.2's injection list: a wrong top
+and a truncated report injected in sky130, the tsmc28 bandgap tempco replay,
+and the tsmc65 SDC fault). Three repeats per task and condition (f7 five, f8
+three), seeded order, Claude on every tracked task, Codex pinned to one build.
+Tracked tasks start from recorded baselines; B's own run on its exact final
+source now stands as its judgement when it collected one.
+
+**The seven new local tasks:**
+
+| Task | Harness | Cond. | Correct | False acceptance | Scope excursions | Claimed done / blocked | Rounds | Licensed runs (total) | Minutes (mean) | Cost $ (mean) | Tokens (mean) |
+|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| f10-card-profiles | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.7 | 0.31 | - |
+| f10-card-profiles | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.5 | 0.29 | - |
+| f11-stats-report | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.5 | 0.00 | 261k |
+| f11-stats-report | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.5 | 0.00 | 248k |
+| f12-abstract-purposes | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.6 | 0.26 | - |
+| f12-abstract-purposes | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.7 | 0.26 | - |
+| f13-macro-gds-shared | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.2 | 0.00 | 245k |
+| f13-macro-gds-shared | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.3 | 0.00 | 278k |
+| f14-rail-stub | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.9 | 0.34 | - |
+| f14-rail-stub | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 0.9 | 0.33 | - |
+| f15-wide-claim | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.6 | 0.00 | 326k |
+| f15-wide-claim | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 1.7 | 0.00 | 344k |
+| f9-license-lumerical | codex | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 2.4 | 0.00 | 258k |
+| f9-license-lumerical | codex | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 0 | 2.6 | 0.00 | 272k |
+
+**The tracked widening** (owner-approved, about 40 licensed runs; used 35 in the
+campaign plus 2 recorded baselines and 1 refusal canary):
+
+| Task | Harness | Cond. | Correct | False acceptance | Scope excursions | Claimed done / blocked | Rounds | Licensed runs (total) | Minutes (mean) | Cost $ (mean) | Tokens (mean) |
+|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| f16-ota-wrong-top | claude | B | 3/3 | 0 | 0 | 2 / 1 | 1.0 | 3 | 1.4 | 0.48 | - |
+| f16-ota-wrong-top | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 1.0 | 0.31 | - |
+| f17-ota-truncated-report | claude | B | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 1.3 | 0.50 | - |
+| f17-ota-truncated-report | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 1.0 | 0.37 | - |
+| f18-bandgap-tempco | claude | B | 3/3 | 0 | 0 | 1 / 0 | 1.0 | 5 | 3.2 | 0.79 | - |
+| f18-bandgap-tempco | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 1.7 | 0.44 | - |
+| f19-sdc-fault | claude | B | 3/3 | 0 | 0 | 1 / 0 | 1.0 | 5 | 5.1 | 1.05 | - |
+| f19-sdc-fault | claude | C | 3/3 | 0 | 0 | 3 / 0 | 1.0 | 3 | 4.4 | 0.41 | - |
+| f7-ota-fault | claude | B | 2/2 | 0 | 0 | 2 / 0 | 1.0 | 2 | 1.2 | 0.41 | - |
+| f7-ota-fault | claude | C | 2/2 | 0 | 0 | 2 / 0 | 1.0 | 2 | 0.8 | 0.27 | - |
+| f8-buffer-stop | claude | B | 2/2 | 0 | 0 | 0 / 2 | 1.0 | 3 | 4.9 | 3.47 | - |
+| f8-buffer-stop | claude | C | 2/2 | 0 | 0 | 0 / 2 | 1.0 | 0 | 0.8 | 1.34 | - |
+
+**All four campaigns together:**
+
+| | Runs | Correct | False acceptances | Scope excursions | Licensed runs | Median minutes | Total minutes | Claude $ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Local, B | 39 | 39 | 0 | 0 | 0 | 1.61 | 61 | 5.27 |
+| Local, C | 39 | 39 | 0 | 0 | 0 | 1.55 | 62 | 5.07 |
+| Tracked, B | 20 | 20 | 0 | 0 | 28 (18 own + 10 judging) | 1.59 | 55 | 20.52 |
+| Tracked, C | 20 | 20 | 0 | 0 | 17 | 1.02 | 31 | 10.00 |
+
+**Reading.**
+- **Correctness does not separate them.** Every run of both conditions reached
+  the right outcome, including every injected fault and every expected stop.
+- **Local, decided tasks: a tie** on time, cost and patch size, now over 13
+  tasks in three repos and both harnesses.
+- **Tracked tasks: C costs less.** 44 % less wall time, half the model cost.
+  Licence use is equal on what each launched (C 17, B 18). B's 10 judging runs
+  are what it takes to trust B's result when B did not verify it itself.
+- **B leaves loose ends; C leaves none.** In 20 tracked B runs:
+  - 4 ended waiting on a background timer, their own run never collected and no
+    `STATUS` line: 4 of the 6 f18 and f19 repeats. The runs had passed; B did
+    not wait to find out. This is the one-shot trap the SessionStart guidance
+    already warns about, and it appears as soon as a job takes a minute or more.
+  - 1 could not check its own work: its commands drifted out of its shell
+    allowance (f7).
+  - On the stop task, all 3 B repeats left 45–89 lines of uncommitted
+    instrumentation in the bench and scorer and launched a run; all 3 C repeats
+    stopped in under a minute with no run and a full failure report.
+  - 5 of B's own cluster jobs were left uncollected at session end (collected
+    afterwards: 4 passes, 1 expected fail).
+
+**Condition D** (a deterministic script "where applicable", §8.1). The 13 local
+tasks are code changes: a deterministic check (the acceptance test) already
+*detects* each, but writing the fix needs reasoning, so D does not apply. Of the
+tracked faults, a deterministic check names the cause in four: Spectre's
+undefined-subcircuit error (f16), the adapter's "missing or nonfinite metric"
+(f17), the `tempco-reported` check (f18) and the preflight's uncertainty count
+(f19). Only f18's reached the failure report, as its failed check; the others
+stayed in logs. That gap is now closed for adapter refusals (flowkit `7ec12e8`,
+tsmc28 `93cfbbc`: "Refused by the adapter …"). For f7 (a mis-wired gate) no
+deterministic check exists, and f8 needs one that is not built (the output swing).
+D would have **detected** but not **fixed** any of them, so it is not a
+replacement for B or C; it is the better failure report both of them read.
+
+**Against §8.2's suggested advancement criteria:**
+- zero observed false acceptances: **met** by both;
+- all critical injected faults detected: **met** (4 injected tasks, 28 runs);
+- no duplicate submission after restart: **none observed** (not exercised by
+  deliberate restarts in this campaign; §6.3 was tested live on 2026-09-24);
+- complete provenance for every accepted result: **met** for tracked gates
+  (tracker-verified); local gates are the recorded test runs;
+- at least 20 % lower median human active time or avoidable licensed submissions
+  than B: human time is 0 by construction (both ran headless), so it was not
+  measured; on the tracked tasks C's median time is **36 % lower** and its total
+  licensed runs **39 % lower** once B's results are independently judged
+  (equal on own launches).
+
+**Decision (§8.3), on 118 runs:** keep **B** (chat with the tracker, guides and
+hooks) for small, decided local tasks: it ties C and needs no contract.
+Use **C** (the bounded worker) for tasks with tracked gates, diagnoses or a
+likely stop: the same correctness at about half the time and model cost, no
+unattended loose ends, and a structured failure report when it stops. The
+remaining B weakness has a cheap B-side fix worth trying first for chat use: a
+headless or one-shot session must collect in the foreground before ending
+(the guidance says so; the hooks could enforce it).
+
+**Caveats.** Headless runs only, so the study's main expected advantage (human
+active minutes) is unmeasured; one owner's repositories and tasks; all tracked
+tasks with Claude; tracked tasks are short (seconds to 3 minutes), so long
+queues and overnight jobs, where persistence should matter most, are not in
+the sample.
 
 ## Re-running this page
 
