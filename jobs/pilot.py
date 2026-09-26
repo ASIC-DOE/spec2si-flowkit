@@ -238,7 +238,11 @@ def redact(text):
 def refuse(stage, exc):
     """Leave the refusal's reason where the tracker's evidence reader looks for it (refusal.json in the
     job workspace). The job still fails as before; the failure report can then NAME the refusal
-    instead of showing only "execution failed" and a traceback count (study §8.2: named failure)."""
+    instead of showing only "execution failed" and a traceback count (study §8.2: named failure).
+    Only inside a tracked job (ASICJOBS_ID set): an untracked invocation's working directory is
+    somebody's checkout, not a job workspace (a test run left one in tsmc28's deployment/bnl)."""
+    if not os.environ.get("ASICJOBS_ID"):
+        return
     try:
         write(Path.cwd() / "refusal.json", dict(schema=1, kind="refusal", job_id=os.environ.get("ASICJOBS_ID"),
                                                 stage=stage, error=type(exc).__name__, reason=redact(exc)))

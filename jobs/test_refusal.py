@@ -48,6 +48,19 @@ class Writer(unittest.TestCase):
                               reason="unsupported case"), data)
 
 
+    def test_outside_a_tracked_job_nothing_is_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("ASICJOBS_ID", None)
+                    pilot.refuse("identity", ValueError("no job"))
+                self.assertFalse(Path(tmp, "refusal.json").exists())
+            finally:
+                os.chdir(cwd)
+
+
 class Reader(unittest.TestCase):
     # test_evidence's tracker-record fixture, without re-running its tests.
     setUp, write, records = (fixtures.ReportFixtures.setUp, fixtures.ReportFixtures.write,
