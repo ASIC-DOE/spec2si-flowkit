@@ -62,12 +62,11 @@ The frozen sets are `worker/contracts/frozen/` and `worker/contracts/frozen-trac
 
 **Next, in order:**
 
-1. **Close B's one-shot trap** (the comparison's main B weakness): 4 of 6 B
-   runs on the 1–3 minute jobs ended on a background timer without collecting
-   their own run. The SessionStart guidance already forbids it; try enforcing it
-   (a Stop hook that refuses to end a session holding an uncollected task key
-   from this session, or an explicit foreground wait in the guides), then re-run
-   f18/f19 under B to see whether it closes.
+1. ~~**Close B's one-shot trap**~~: done (flowkit `2153013`, `00118e2`):
+   `collect --wait` and a Claude Stop hook, rolled out to all four consumers; the
+   f18/f19 B re-run went from 4 of 6 uncollected endings to 0, and one licensed
+   run per repeat (as C). Open: the same Stop hook for Codex (needs the owner's
+   `/hooks` trust for the new handler).
 2. **Re-measure ordinary use from 2026-10-09** (below).
 3. **Report upkeep** (below), now with the §8 result to summarize first.
 

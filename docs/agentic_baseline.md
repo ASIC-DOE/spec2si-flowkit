@@ -421,6 +421,39 @@ tasks with Claude; tracked tasks are short (seconds to 3 minutes), so long
 queues and overnight jobs, where persistence should matter most, are not in
 the sample.
 
+## Closing B's one-shot trap (2026-09-26, after the comparison)
+
+The comparison's main B weakness was fixed on B's side (flowkit `2153013`,
+`00118e2`; re-vendored and redeployed in all four consumers):
+
+- `jobs.workflow collect --wait SECONDS` waits in the foreground, polling inside
+  Python (the harness blocks a foreground `sleep`, which is why B had used a
+  background timer), bounded at 540 s per call.
+- A Claude **Stop hook** refuses to end a session holding a tracked job it
+  started and never collected, and says how to wait; it lets go when the last
+  message hands each open job off by task key, after three refusals, or for
+  receipts older than the rule. Not yet for Codex (a new handler needs `/hooks`
+  trust again).
+
+**Re-run of the two tasks where the trap showed** (f18, f19; B only, three
+repeats each; today's tooling laid over the frozen bases with `replay.tooling`):
+
+| | Runs | Correct | Ended without collecting | Licensed runs | Minutes (mean) | Claude $ (mean) |
+|---|---:|---:|---:|---:|---:|---:|
+| B before (f18+f19) | 6 | 6 | 4 | 10 | 4.2 | 0.92 |
+| B after (f18+f19) | 6 | 6 | **0** | **6** | 3.7 | 0.54 |
+| C (f18+f19) | 6 | 6 | 0 | 6 | 3.0 | 0.42 |
+
+Every B session used `collect --wait 540` from the SessionStart guidance, ended
+`STATUS: done`, and its own tracker verdict was reused as the judgement, so B
+now spends one licensed run per repeat, as C does. The Stop hook did not need to
+fire in these runs; two live canaries showed it does: a session told to start a
+job and end with "OK" was refused ("Stop hook feedback: This session started
+tracked job(s) it has not collected …") and then handed the job off by task key,
+which the hook accepted. On these tasks the remaining C advantage is modest
+(about a fifth less time and model cost); the stop task's structured failure
+report and clean stop are unchanged.
+
 ## Re-running this page
 
 ```bash
