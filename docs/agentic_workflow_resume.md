@@ -27,7 +27,8 @@ for r in flowkit tsmc65 tsmc28 xt011 sky130; do cd /c/dev/spec2si-$r; git fetch 
 python sync.py --check-all      # from flowkit; routekit / apiref / housekeeping drift is known and not ours
 ```
 
-All five repos were pushed and in sync at the end of 2026-09-26
+At the end of 2026-09-26 flowkit, tsmc28, xt011 and sky130 were pushed; tsmc65's
+`main` was left unpushed because it also carries other sessions' AFE/driver commits
 (flowkit: the commit carrying this page; tsmc65 `89bc2706`, tsmc28 `6f6bbbe`, xt011 `96b8daa`, sky130 `3aa1231`; branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
 
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
