@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-09-26
-summary: Where the agentic workflow plan stands at the end of 2026-09-26 and what to do next. START HERE: the B-versus-C comparison on frozen tasks (study §8). §9.2 is done: ten reviewed worker attempts, 9 ready for review, 5 merged, the expected stop, no false acceptance; the worker gained blind replays, injected-fault bases and fetched results. Everything before it is built and accepted: the tracker in all four consumers under Claude Code and Codex, duplicate-safe submission, failure reports, the condition-A baseline. Includes the commands, paths and traps a new session needs.
+summary: Where the agentic workflow plan stands at the end of 2026-09-26 and what to do next. START HERE: the rest of §8 -- a bigger B-versus-C sample (the owner asked for it), fewer judging runs, condition D, then the ordinary-use re-measurement from 2026-10-09. Done: §9.2 (ten reviewed worker attempts) and a first B-versus-C measurement (tie 18/18 on local tasks, 4/4 on tracked ones with C cheaper). Includes the commands, paths and traps a new session needs.
 -->
 
 # RESUME — the agentic-workflow plan
@@ -58,9 +58,24 @@ the stop task C's structured failure report against B's prose, stray edits and
 an uncollected job. Provisional decision: B for small local tasks, C for
 tracked, diagnosis and stop tasks. Details: [agentic_baseline.md](agentic_baseline.md).
 Records: `C:/dev/.spec2si-job-state/compare-20260926/` and
-`.../compare-tracked-20260926/`. **What is left of §8**: a larger sample if the
-decision needs it (ask about licences first), and the re-measurement of ordinary
-use from 2026-10-09.
+`.../compare-tracked-20260926/`. **What is left of §8 (the owner, 2026-09-26: "a bigger sample seems called
+for to firm up the initial conclusions"):**
+
+1. **Widen the frozen set toward the study's 12–20 tasks** (§8.1), spanning
+   maintenance, diagnosis and §8.2's fault injections (wrong top, stale
+   artifact, truncated report, missing corner, changed deck, protected-checker
+   edit, licence exhaustion, connection loss). Local replays are free: mine the
+   repos for small fix+test commits. Tracked tasks cost licences: **size the
+   licensed part and ask before running it** ([[spread-cluster-jobs]] rule:
+   ask past ~10 runs; run two at a time).
+2. **Spend fewer judging runs:** when B's own last collected run was on the
+   same packaged source as its final state, reuse that tracker verdict instead
+   of a new judging run (the verdict is the tracker's, not B's claim).
+3. **Condition D** (a deterministic script, "where applicable"): for each
+   task, record whether an existing deterministic check already names the
+   cause (a Genus warning, a netlist-versus-spec comparison), without writing a
+   checker per injected fault after the fact.
+4. **Re-measure ordinary use from 2026-10-09** (below).
 
 **§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read
 [worker/README.md](../worker/README.md) first: design, contracts, tracked
