@@ -1,0 +1,82 @@
+{
+ "schema": 1,
+ "id": "f17-ota-truncated-report",
+ "goal": "The tracked OTA schematic run (sky130 sky130_ota6, deployment/bnl/tracked_job.py) fails on this revision. Diagnose why from the failure report and the measured results, and fix the cause within the editable paths. analog/lib/sky130_ota6/spec.json is the decision and simulation/tb_schematic.scs is the test harness: do not change them, the checks or the adapter.",
+ "oracle": "The scorer's result omits power_w (injected 42fad29; revert bf436e8), so the adapter refuses the result as missing a metric. Correct: restore the key.",
+ "replay": {
+  "fix": "bf436e8",
+  "shallow": true
+ },
+ "gates": [
+  {
+   "name": "cluster-ota",
+   "acceptance": true,
+   "timeout": 1800,
+   "tracked": {
+    "adapter": "deployment/bnl/tracked_job.py",
+    "snapshot_root": "/u/home/smandal/.spec2si/sky130/ota6-schematic",
+    "host": "asic7",
+    "work_root": "/u/home/smandal/.spec2si/sky130/ota6-schematic/runs",
+    "parameters": {
+     "case": "schematic"
+    },
+    "fetch": [
+     "native.json"
+    ],
+    "state_dir": "C:/dev/.spec2si-job-state/sky130/tasks",
+    "poll_seconds": 15,
+    "frozen_baseline": {
+     "report": "../frozen/inputs/ota-truncated-report/failure.md",
+     "results": "../frozen/inputs/ota-truncated-report"
+    }
+   }
+  },
+  {
+   "name": "adapter-tests",
+   "run": [
+    "py",
+    "-3",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "deployment/bnl/test_tracked_job.py"
+   ],
+   "timeout": 300
+  }
+ ],
+ "budget": {
+  "rounds": 2,
+  "usd": 6.0,
+  "minutes": 45,
+  "per_round_usd": 3.0,
+  "licensed_jobs": 2
+ },
+ "harness": {
+  "name": "claude",
+  "round_timeout": 1500
+ },
+ "expected_outcome": "pass",
+ "frozen": "B-versus-C tracked set, widened 2026-09-26: injected fault (bf436e8)",
+ "repo": "C:/dev/spec2si-sky130",
+ "kind": "diagnosis",
+ "context": [
+  "analog/lib/sky130_ota6/spec.json",
+  "analog/lib/sky130_ota6/schematic/ota6.scs",
+  "analog/lib/sky130_ota6/simulation/tb_schematic.scs",
+  "analog/lib/sky130_ota6/simulation/score_schematic.py",
+  "deployment/bnl/tracked_job.py"
+ ],
+ "editable": [
+  "analog/lib/sky130_ota6/schematic/ota6.scs",
+  "analog/lib/sky130_ota6/simulation/score_schematic.py",
+  "analog/lib/sky130_ota6/simulation/run_schematic.sh"
+ ],
+ "protected": [
+  "analog/lib/sky130_ota6/spec.json",
+  "analog/lib/sky130_ota6/simulation/tb_schematic.scs",
+  "deployment/bnl/*",
+  "deployment/bnl/jobs/*"
+ ]
+}

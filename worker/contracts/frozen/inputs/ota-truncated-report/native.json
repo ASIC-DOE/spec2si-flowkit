@@ -1,0 +1,19 @@
+{
+  "checks": {
+    "dc_gain": true,
+    "phase_margin": true,
+    "power": true,
+    "ugb": true,
+    "vout_max": true,
+    "vout_min": true
+  },
+  "corner": "tt",
+  "dc_gain_db": 36.620426802323195,
+  "dc_transfer_slope_v_per_v": 67.20870585990303,
+  "phase_at_ugb_deg": -90.69620048366521,
+  "phase_margin_deg": 89.30379951633479,
+  "temperature_c": 27.0,
+  "ugb_hz": 21892449.500539683,
+  "verdict": "PASS",
+  "vout_quiescent_v": 0.7003985689225898
+}
