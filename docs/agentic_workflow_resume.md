@@ -184,7 +184,8 @@ activation and compare with condition A (the baseline's "after" section).
   baseline 0 (was 7). Re-vendored and all five profiles redeployed.
 - ~~`jobs/bin/license.py` drifted in all four consumers~~: `b74e100` (the
   Lumerical server) vendored with `test_license.py`; profiles redeployed.
-  spec2si-aim's `jobs/` is still far behind (no tracked profile there).
+  spec2si-aim's `jobs/` and `integrations/cluster_jobs/` caught up too
+  (aim `2df14a5`; no tracked profile or hook there, so no redeploy).
 - **xt011 buffer linearity is an open design question** for the owner: X1 is
   slew-limited at 250–520 fF at 160 MHz, so the linear-in-f model (or the 2 %
   criterion, or the operating envelope) needs deciding. The open report
