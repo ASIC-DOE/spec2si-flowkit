@@ -29,19 +29,19 @@ python sync.py --check-all      # from flowkit; routekit / apiref / housekeeping
 
 At the end of 2026-09-26 flowkit, tsmc28, xt011 and sky130 were pushed; tsmc65's
 `main` was left unpushed because it also carries other sessions' AFE/driver commits
-(flowkit: the commit carrying this page; tsmc65 `89bc2706`, tsmc28 `6f6bbbe`, xt011 `96b8daa`, sky130 `3aa1231`; branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
+(flowkit: the commit carrying this page; tsmc65 `726d0a12` (unpushed), tsmc28 `821f295`, xt011 `4587033`, sky130 `04903c0`; branches: xt011 `cml-pin-escape`, sky130 `snn-readout`, the rest `main`).
 
 | Repo | Tracked flow(s) | Live gates | Deployed profile |
 |---|---|---|---|
-| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-010 on asic8, `.tracker-local/` |
-| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-010, ADC snapshot-20260926-01, both on asic7 |
-| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260926-01 on asic7 |
-| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260926-01 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
+| tsmc65 | digital smoketest synthesis (`dig_flows/run.py smoketest_flow`, about 3 min) | **accepted**: canaries, licensed pass 5/5, ten Claude requests (two incomplete), Codex canaries | snapshot-011 on asic8, `.tracker-local/` |
+| tsmc28 | ADC normal mode (about 1 h 53 min); **bandgap DC** (about 1 min, the short task) | **accepted**: ADC licensed pass 2/2; bandgap passes the canaries, ten Claude requests (one incomplete) and ten Codex requests | bandgap snapshot-011, ADC snapshot-20260926-02, both on asic7 |
+| xt011 | buffer characterization, one cell per task (X1: under a minute) | **accepted**: canaries, licensed run (engineering **fail**, as the native scorer), ten requests under Claude and under Codex, none incomplete | snapshot-20260926-02 on asic7 |
+| sky130 | OTA schematic regression (seconds) | **accepted**: as xt011; engineering **pass 7/7** | snapshot-20260926-02 on asic7 (asic6 profiles archived under `.tracker-local/asic6/revisions/`) |
 
 Codex hook trust is **persisted** in all four consumers, and a canary without
 the bypass flag passes in each. Profiles were all redeployed after flowkit
-`1e51c95` (worker attempt 10 changed `jobs/failure.py` and `jobs/workflow.py`,
-re-vendored everywhere); a change to a vendored test does not make them stale.
+`0ed1a78` (the licence signature in `jobs/bin/report.sh`, re-vendored
+everywhere); a change to a vendored test does not make them stale.
 
 Evidence lives in each repo's guide: tsmc65 `docs/tracked_jobs.md`; tsmc28
 `docs/howto/tracked_bandgap.md` and `docs/tracked_adc_migration.md`; xt011 and
@@ -164,10 +164,13 @@ activation and compare with condition A (the baseline's "after" section).
   worker pilot 2 (`2c9d45c`); AGENTS.md in each consumer says to use it.
 - ~~`report --note` alone was refused~~: worker attempt 10 (`1e51c95`).
 - ~~Codex runs read "$0.00"~~: worker attempt 9 (`acbb85d`).
-- **The licence log signature counts routine checkout lines.** A passing tsmc65
-  Genus run reads `license: 9`, so an early Genus failure would be derived as
-  a licence `tool-error`. Tighten `SIG_LICENSE` in `jobs/bin/report.sh`
-  (success lines out, denials in), test, re-vendor, redeploy.
+- ~~The licence log signature counted routine checkout lines~~: `0ed1a78`.
+  `SIG_LICENSE` counts denials only; a checkout counts only with a failure
+  word. The passing Genus job now reads `license 0` (was 9), attempt 8's
+  baseline 0 (was 7). Re-vendored and all five profiles redeployed.
+- **`jobs/bin/license.py` drifts in tsmc65, tsmc28 and xt011**: `b74e100`
+  (the Lumerical server) was never vendored there, with `test_license.py`.
+  Packaged code, so vendoring it means redeploying those profiles again.
 - **xt011 buffer linearity is an open design question** for the owner: X1 is
   slew-limited at 250–520 fF at 160 MHz, so the linear-in-f model (or the 2 %
   criterion, or the operating envelope) needs deciding. The open report

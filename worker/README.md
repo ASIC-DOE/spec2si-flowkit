@@ -218,8 +218,8 @@ What attempts 4 to 10 added:
   redeployed (no licence) before it counted as done.
 - **The failure report's log signatures can mislead a diagnosis.** A passing
   tsmc65 Genus run counts `license: 9`; attempt 8's report showed `license 7` on
-  a constraint failure. The licence pattern counts routine checkout lines
-  (backlog: tighten `SIG_LICENSE` in `jobs/bin/report.sh`).
+  a constraint failure. The licence pattern counted routine checkout lines;
+  fixed in `0ed1a78` (denials only; both jobs now read `license 0`).
 
 Injected-fault scratch branches stay local (never pushed) so the frozen tasks
 can be re-run: `worker-fault/ota-tail-gate` in sky130 and
