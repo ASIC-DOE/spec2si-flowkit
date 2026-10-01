@@ -35,10 +35,35 @@ import re
 import socket
 import time
 
+def _sibling_progress():
+    """The bundle's OWN progress.py, loaded by path.
+
+    `import progress` resolved only when the bundle directory was on sys.path,
+    and a tracked payload loads this module BY PATH (jobs.pilot.module), so for
+    them the import failed and the fallback below wrote frac with no rate: on
+    2026-10-01 all 74 finished spectre-campaign jobs carried rate_per_s null,
+    and the host picker could never learn which host runs them fast. By path,
+    and FIRST, so an unrelated `progress` on sys.path cannot shadow it either.
+    """
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "progress.py")
+    spec = importlib.util.spec_from_file_location("asicjobs_progress", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not hasattr(mod, "assemble"):
+        raise ImportError("progress.py without assemble")
+    return mod
+
+
 try:
-    import progress as _progress          # sibling in the shipped bundle
+    _progress = _sibling_progress()
 except Exception:                          # pragma: no cover
-    _progress = None
+    try:
+        import progress as _progress      # an older layout: sibling on sys.path
+        if not hasattr(_progress, "assemble"):
+            _progress = None
+    except Exception:
+        _progress = None
 
 SCHEMA = 1
 

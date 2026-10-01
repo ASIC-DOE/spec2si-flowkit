@@ -129,6 +129,42 @@ def test_standalone_failed_via_context_manager():
 
 # --- attach ---------------------------------------------------------------
 
+def test_attach_by_path_records_a_rate():
+    """The tracked-payload case: jobrec loaded BY PATH (jobs.pilot.module) in a
+    process whose sys.path does not hold the bundle -- with an unrelated
+    `progress` module shadowing the name. Before 2026-10-01 its progress had
+    frac but rate_per_s null (74/74 spectre-campaign jobs)."""
+    import subprocess
+    import time as _t
+    here = os.path.dirname(os.path.abspath(__file__))
+    with _Env() as e:
+        jid = "spectre-campaign-run-20261001T000000Z-abcd"
+        jd = os.path.join(e.root, jid)
+        os.makedirs(jd)
+        with open(os.path.join(jd, "meta.json"), "w", encoding="utf-8") as fh:
+            json.dump({"schema": 1, "kind": "meta", "jobid": jid,
+                       "started": int(_t.time()) - 100}, fh)
+        decoy = tempfile.mkdtemp(prefix="decoy-")
+        with open(os.path.join(decoy, "progress.py"), "w", encoding="utf-8") as fh:
+            fh.write("# an unrelated module that happens to be called progress\n")
+        code = ("import importlib.util, sys\n"
+                "sys.path.insert(0, %r)\n"
+                "s = importlib.util.spec_from_file_location('process_adapter', %r)\n"
+                "m = importlib.util.module_from_spec(s); s.loader.exec_module(m)\n"
+                "r = m.begin(flow='spectre-campaign', target='c', total=10)\n"
+                "r.progress(5, 10, 'benches')\n"
+                % (decoy, os.path.join(here, "bin", "jobrec.py")))
+        env = dict(os.environ, ASICJOBS_JOBDIR=jd, ASICJOBS_ID=jid)
+        r = subprocess.run([sys.executable, "-c", code], cwd=decoy, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        shutil.rmtree(decoy, ignore_errors=True)
+        check(r.returncode == 0, "payload ran (%s)" % r.stderr[-300:])
+        p = _read(os.path.join(jd, "progress.json"))
+        check(p.get("done") == 5 and p.get("frac") == 0.5, "attach progress 5/10 (%r)" % p)
+        check(isinstance(p.get("rate_per_s"), float) and 0.03 < p["rate_per_s"] < 0.06,
+              "a MEASURED rate despite path loading + a shadowing module (%r)" % p)
+
+
 def test_attach_enriches_progress_only():
     with _Env() as e:
         # simulate a runjob-created job dir
