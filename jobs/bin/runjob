@@ -268,7 +268,7 @@ flow=job
 target=run
 interval=5
 tool=""
-ptool=""         # progress extractor name (spectre|innovus|calibre|cocotb)
+ptool=""         # progress extractor name (spectre|innovus|calibre|cocotb|units)
 ptotal=0         # expected total for frac/ETA (0 = unknown)
 plog=""          # log file to parse for progress (default: stdout.log)
 mode=""          # "lit" (-- CMD) or "b64" (--cmd64 TOKENS)

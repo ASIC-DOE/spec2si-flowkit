@@ -473,7 +473,7 @@ def build_parser():
     r.add_argument("--expect", action="append",
                    help="expected artifact path (repeatable)")
     r.add_argument("--progress", default=None,
-                   help="live progress extractor: spectre|innovus|calibre|cocotb")
+                   help="live progress extractor: spectre|innovus|calibre|cocotb|units")
     r.add_argument("--total", type=int, default=None,
                    help="expected total (points/steps) for frac + ETA")
     r.add_argument("--progress-log", default=None,
@@ -512,6 +512,8 @@ def cmd_hosts(t, ns):
     host, states = hosts.pick(min_free=ns.min_free, timeout=ns.timeout,
                               mode=ns.mode, jobs=jobs, flow=ns.flow,
                               threads=threads)
+    # the survey the session hooks quote when a launch goes elsewhere
+    hosts.save_survey(states, host, threads=threads, flow=ns.flow)
     out = sys.stderr if getattr(ns, "pick", False) else sys.stdout
     for ln in hosts.format_table(states, threads=threads):
         print(ln, file=out)

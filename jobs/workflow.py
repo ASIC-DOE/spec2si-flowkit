@@ -111,10 +111,14 @@ def validate_profile(p):
     require(p["workspace"] == "unique-child", "only unique-child allocation is supported")
     require(p["lifecycle"] == "foreground", "payload must own/wait for its work")
     policy = p["host_policy"]
-    fields(policy, ("allowed", "default", "allow_auto"))
+    fields(policy, ("allowed", "default", "allow_auto"), ("threads",))
     require(isinstance(policy["allowed"], list) and bool(policy["allowed"])
             and all(identifier(h) and h != "auto" for h in policy["allowed"]), "invalid hosts")
     require(type(policy["allow_auto"]) is bool, "allow_auto must be boolean")
+    # `threads`: the job's own thread count (spectre +mt=N, a campaign's
+    # parallel benches), so `auto` ranks by speed x min(1, free/threads)
+    require("threads" not in policy or (type(policy["threads"]) is int and policy["threads"] > 0),
+            "threads must be a positive integer")
     require(policy["default"] in policy["allowed"] or
             (policy["default"] == "auto" and policy["allow_auto"]), "invalid default host")
     require(isinstance(p["parameters"], dict), "parameters must be an object")
@@ -143,7 +147,7 @@ def validate_profile(p):
     progress = p["progress"]
     if progress is not None:
         fields(progress, ("tool", "log"), ("total",))
-        require(progress["tool"] in ("spectre", "innovus", "calibre", "cocotb"), "unknown progress tool")
+        require(progress["tool"] in ("spectre", "innovus", "calibre", "cocotb", "units"), "unknown progress tool")
         require(relative(progress["log"]), "invalid progress log")
         require(type(progress.get("total", 0)) is int and progress.get("total", 0) >= 0,
                 "invalid progress total")
@@ -161,10 +165,17 @@ def validate_profile(p):
 
 
 class Workflow:
-    def __init__(self, profile, transport_factory=Transport, host_picker=hosts.pick):
+    def __init__(self, profile, transport_factory=Transport, host_picker=hosts.pick,
+                 history=None):
         self.profile = validate_profile(profile)
         self.transport_factory = transport_factory
         self.host_picker = host_picker
+        #: () -> finished-job list for speed ranking; default reads the shared
+        #: $JOBS store from whichever allowed host answers (hosts.job_history)
+        self.history = history
+        #: how `prepare` chose the host when it was `auto` (None otherwise):
+        #: persisted beside the reference so the choice can be audited later
+        self.host_choice = None
 
     def envelope(self, ref, observation, next_action, evidence="unchecked", **extra):
         result = dict(schema=1, kind="workflow", task_id=ref["task_id"],
@@ -206,9 +217,10 @@ class Workflow:
         argv = self.build_argv(parameters)
         policy = p["host_policy"]
         chosen = host if host is not None else policy["default"]
+        self.host_choice = None
         if chosen == "auto":
             require(policy["allow_auto"], "automatic host selection is disabled")
-            chosen, _ = self.host_picker(hosts=policy["allowed"])
+            chosen = self.pick_auto(policy)
         require(chosen in policy["allowed"], "host unavailable or outside profile policy")
         task = "task-" + uuid.uuid4().hex
         ref = dict(schema=1, task_id=task, host=chosen, job_id=None,
@@ -216,6 +228,47 @@ class Workflow:
                    workspace=posixpath.join(p["work_root"], task),
                    request_sha256=digest(parameters))
         return ref, argv
+
+    def pick_auto(self, policy):
+        """The `auto` host: measured speed (this profile's own finished jobs
+        -- the flow IS the profile id -- pooled across hosts with the same CPU
+        model) x room for `threads`, gated on MIN_FREE (hosts.pick). Without a
+        history the ranking is capacity, which is what `auto` always was; the
+        history only ever sharpens it. The survey is kept in `host_choice`."""
+        threads = policy.get("threads")
+        mode = self.profile.get("transport_mode")
+        if self.host_picker is hosts.pick:
+            accepts = {"jobs", "flow", "threads", "mode"}
+        else:                             # an injected picker gets only what it declares
+            try:
+                import inspect
+                accepts = set(inspect.signature(self.host_picker).parameters)
+            except (TypeError, ValueError):
+                accepts = set()
+        jobs = []
+        if "jobs" in accepts:             # read the history only for a picker that uses it
+            try:
+                jobs = (self.history() if self.history is not None
+                        else hosts.job_history(policy["allowed"], mode=mode))
+            except Exception:             # speed is an enhancement, never a prerequisite
+                jobs = []
+        kw = dict(hosts=policy["allowed"])
+        for k, v in (("jobs", jobs), ("flow", self.profile["id"]), ("threads", threads),
+                     ("mode", mode)):
+            if k in accepts:
+                kw[k] = v
+        chosen, states = self.host_picker(**kw)
+        if self.host_picker is hosts.pick:
+            hosts.save_survey(states or [], chosen, threads=threads, flow=self.profile["id"])
+        self.host_choice = dict(
+            policy="auto", flow=self.profile["id"], threads=threads, history_jobs=len(jobs),
+            picked=chosen,
+            survey=[dict(host=s.host, cpu=getattr(s, "cpu", None), free=s.free,
+                         speed=getattr(s, "speed", None), speed_src=getattr(s, "speed_src", None),
+                         nsamp=getattr(s, "nsamp", 0), score=getattr(s, "score", None),
+                         why=s.why or None)
+                    for s in (states or [])])
+        return chosen
 
     def dispatch(self, ref, argv):
         """Launch under the task id as the tracker-side request key: a second

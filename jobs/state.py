@@ -191,10 +191,19 @@ class TaskStore:
                       required_artifacts=workflow.profile["expected_artifacts"],
                       created_at=time.time(), reference=ref,
                       submission="submission-unknown", request_protocol=1)
+        # How an `auto` host was chosen (the survey, the threads, the measured
+        # speeds): beside the reference, never in it -- the reference's field
+        # set is a contract other readers (the hooks) check exactly.
+        choice = getattr(workflow, "host_choice", None)
+        if choice:
+            record["host_choice"] = choice
         # Persist uncertainty BEFORE dispatch. The task id in it is the request
         # key the tracker will hold, so a lost acknowledgement stays resolvable.
         atomic_json(os.path.join(path, "task.json"), record)
         result = workflow.dispatch(dict(ref), self.job_argv(workflow, argv, ref, source, manifest_sha256))
+        if choice:
+            result["host_choice"] = dict((k, choice[k]) for k in
+                                         ("policy", "picked", "threads", "history_jobs"))
         return self.settle(path, record, result)
 
     @staticmethod

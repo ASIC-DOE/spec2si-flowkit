@@ -119,8 +119,28 @@ def cocotb(text):
     return {"done": npass, "total": nany}
 
 
+_UNITS = re.compile(r"^FLOWKIT-PROGRESS done=(\d+)(?: total=(\d+))?\s*$", re.M)
+
+
+def units(text):
+    """A payload's OWN count of finished work units: lines
+    `FLOWKIT-PROGRESS done=N [total=M]`, the last one wins. For runners whose
+    tool log has no countable signal of its own -- a Spectre CAMPAIGN is N
+    independent benches, and until 2026-10-01 its tracked jobs recorded no
+    rate at all, so `hosts --flow` could never learn which host runs them
+    fast. Numbers only (NDA-safe), and silence is None, never 0/100%."""
+    ms = _UNITS.findall(text)
+    if not ms:
+        return None
+    done, total = ms[-1]
+    out = {"done": int(done)}
+    if total:
+        out["total"] = int(total)
+    return out
+
+
 TOOLS = {"spectre": spectre, "innovus": innovus,
-         "calibre": calibre, "cocotb": cocotb}
+         "calibre": calibre, "cocotb": cocotb, "units": units}
 
 
 # --- rate + ETA -----------------------------------------------------------

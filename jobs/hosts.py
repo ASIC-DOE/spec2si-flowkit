@@ -200,6 +200,65 @@ def speeds(jobs, flow=None):
     return {h: (m / ref, len(by_host[h])) for h, m in meds.items()}
 
 
+#: The last survey, one per USER, for the session hooks of every spec2si repo
+#: (integrations/cluster_jobs/hook.py reads the same path -- test_hooks holds
+#: the two to the same value). Written by `hosts` and by a workflow `auto`.
+SURVEY_ENV = "SPEC2SI_HOST_SURVEY"
+
+
+def survey_cache_path():
+    return os.environ.get(SURVEY_ENV) or os.path.join(
+        os.path.expanduser("~"), ".spec2si", "host_survey.json")
+
+
+def save_survey(states, picked, threads=None, flow=None, path=None):
+    """Best effort: a cache that cannot be written costs advice, nothing else."""
+    import json
+    import tempfile
+    import time as _t
+    path = path or survey_cache_path()
+    best = max([s.score for s in states if s.score] or [0])
+    rows = []
+    for s in states:
+        rows.append(dict(host=s.host, cpu=_cpu_short(s.cpu), free=s.free,
+                         speed=s.speed, speed_src=s.speed_src,
+                         wallx=(round(best / s.score, 2) if (threads and s.score) else None),
+                         why=s.why or None))
+    rec = dict(schema=1, time=_t.time(), threads=threads, flow=flow, picked=picked, rows=rows)
+    try:
+        d = os.path.dirname(path)
+        os.makedirs(d, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=".survey-")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(rec, fh)
+        os.replace(tmp, path)
+        return path
+    except OSError:
+        return None
+
+
+def job_history(hosts=None, mode=None, timeout=30.0, tries=2):
+    """Every host's finished jobs, read ONCE from the shared $JOBS (one NFS,
+    so any host answers for all; see `shared_read`). Tries at most `tries`
+    hosts per transport -- a dead transport must not cost a launch minutes --
+    and on Windows falls back to winssh like `_probe_one`. [] on any failure:
+    speed is an enhancement, never a prerequisite."""
+    hs = list(hosts or candidates())[:max(1, tries)]
+
+    def read(m, tmo):
+        res, _h, _s = shared_read(
+            lambda h: remote.Transport(host=h, mode=m, timeout=tmo).list(),
+            hosts=hs, fs="jobs-history-%s" % (m or "default"))
+        return res
+    res = read(mode, timeout)
+    if (res is None or not res.ok) and mode is None and _windows() \
+            and not os.environ.get("ASICJOBS_RSH"):
+        res = read(FALLBACK_MODE, max(timeout, FALLBACK_TIMEOUT))
+    if res is None or not res.ok:
+        return []
+    return (res.data or {}).get("jobs", []) or []
+
+
 def _combine_flows(jobs):
     """host -> (speed, n): every flow normalized on its own (`speeds(flow=f)`)
     and the factors combined as an n-weighted GEOMETRIC mean -- a ratio is

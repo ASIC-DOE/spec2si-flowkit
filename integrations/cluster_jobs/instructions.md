@@ -25,6 +25,15 @@ for the mechanical causes only (the judgement causes are the user's), and
 `--question` for what the next exploration round must answer. `failures` lists the
 open reports.
 
+Choose cluster hosts by measurement, not by load alone: hosts differ ~2x in speed
+by CPU model. A profile whose `host_policy.default` is `auto` picks by measured speed
+(its own finished jobs, pooled across hosts with the same CPU) times room for its
+`threads`, and records the survey as `host_choice` in the task record. For compute
+launched by hand, run the jobs CLI's `hosts --threads N --pick` first; it prints the
+best host for an N-thread job, and the session hook quotes its last survey when a
+hand launch goes to a different host. Long runs launched with `jobs run --host auto
+--threads N --flow F` also record their speed, so the next pick is measured on them.
+
 From PowerShell, write the request to a small JSON file and pass `--parameters-file <file>`
 instead of quoting JSON in `--parameters`; PowerShell mangles the quotes.
 

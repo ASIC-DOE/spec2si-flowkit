@@ -132,6 +132,102 @@ class HookTests(unittest.TestCase):
         message = handle(self.event(kind="SessionStart", source="startup"), self.cfg)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("do not end on a background poll", message)
 
+    def test_session_start_names_the_host_picker(self):
+        message = handle(self.event(kind="SessionStart", source="startup"), self.cfg)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("python3 -m jobs hosts --threads N --pick", message)
+
+    # --- host advice for hand launches (2026-10-01: the asic8 run) ---------
+
+    def survey(self, picked, rows, age=60.0, threads=16):
+        import time
+        path = Path(self.tmp.name) / "survey.json"
+        path.write_text(json.dumps(dict(schema=1, time=time.time() - age, threads=threads,
+                                        flow=None, picked=picked, rows=rows)))
+        os.environ["SPEC2SI_HOST_SURVEY"] = str(path)
+        self.addCleanup(os.environ.pop, "SPEC2SI_HOST_SURVEY", None)
+
+    def script(self, name, text):
+        p = Path(self.tmp.name) / name
+        p.write_text(text)
+        return str(p).replace("\\", "/")
+
+    def advice(self, command):
+        out = handle(self.event(command), self.cfg).get("hookSpecificOutput", {})
+        self.assertNotIn("permissionDecision", out)          # advice, never a denial
+        return out.get("additionalContext", "")
+
+    def test_hand_launch_on_a_slower_host_quotes_the_survey(self):
+        self.cfg["hosts"] = ["compute.example.invalid", "fast.example.invalid"]
+        self.survey("fast.example.invalid", [
+            dict(host="fast.example.invalid", cpu="9950X3D", free=31.6, wallx=1.0),
+            dict(host="compute.example.invalid", cpu="W-2155", free=19.9, wallx=1.91)])
+        s = self.script("go.sh", "cd w\nsetsid nohup spectre +aps +mt=16 run.scs -format psfascii &\n")
+        text = self.advice("ssh compute.example.invalid bash -s < " + s)
+        self.assertIn("picks fast", text)
+        self.assertIn("1.91x", text)
+        self.assertIn("W-2155", text)
+        self.assertIn("python3 -m jobs hosts --threads N --pick", text)
+        # the same launch on the pick is confirmed, not argued with
+        text = self.advice("ssh fast.example.invalid bash -s < " + s)
+        self.assertIn("fast is the current pick", text)
+
+    def test_hand_launch_without_a_recent_survey_says_how_to_get_one(self):
+        self.survey("fast.example.invalid", [], age=3600.0)
+        s = self.script("go.sh", "bash enob_run.sh run1 label\n")
+        text = self.advice("ssh compute.example.invalid bash -s < " + s)
+        self.assertIn("no host survey", text)
+        self.assertIn("hosts --threads N --pick", text)
+
+    def test_no_advice_for_file_checks_unreadable_scripts_or_other_hosts(self):
+        self.survey("fast.example.invalid", [])
+        reads = self.script("ls.sh", "ls -la run/spectre.out\npython3 strobe_swing.py run/psf\n"
+                                     "grep -c spectre run.log\n")
+        self.assertNotIn("Host check", self.advice("ssh compute.example.invalid bash -s < " + reads))
+        self.assertNotIn("Host check", self.advice("ssh compute.example.invalid bash -s < $UNSET_VAR/x.sh"))
+        go = self.script("go.sh", "spectre +aps run.scs\n")
+        self.assertNotIn("Host check", self.advice("ssh elsewhere.invalid bash -s < " + go))
+        self.assertNotIn("Host check", self.advice("cat " + go))
+
+    def test_inline_compute_is_seen_without_a_script(self):
+        self.survey("fast.example.invalid", [], age=7200.0)
+        self.assertIn("Host check", self.advice("ssh compute.example.invalid 'cd w && spectre +aps run.scs'"))
+
+    def test_advice_failure_never_blocks_a_command(self):
+        from . import hook as H
+        orig = H.launch_advice
+        H.launch_advice = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            out = handle(self.event("ssh compute.example.invalid bash -s < x.sh"), self.cfg)
+            self.assertNotIn("permissionDecision", out.get("hookSpecificOutput", {}))
+        finally:
+            H.launch_advice = orig
+
+    def test_survey_path_is_the_one_jobs_hosts_writes(self):
+        """The hook and jobs/hosts.py each spell the cache path (the hook
+        cannot import the jobs package: it lands at a different path in every
+        consumer). Held equal here, env override included."""
+        import importlib.util
+        hosts_py = HERE.parent.parent / "jobs" / "hosts.py"
+        if not hosts_py.exists():
+            self.skipTest("jobs package not beside this integration")
+        spec = importlib.util.spec_from_file_location("flowkit_jobs_hosts", str(hosts_py))
+        sys.path.insert(0, str(hosts_py.parent))
+        try:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        finally:
+            sys.path.pop(0)
+        from . import hook as H
+        self.assertEqual(H.SURVEY_ENV, mod.SURVEY_ENV)
+        os.environ.pop("SPEC2SI_HOST_SURVEY", None)
+        self.assertEqual(H.survey_cache_path(), mod.survey_cache_path())
+        os.environ["SPEC2SI_HOST_SURVEY"] = "/x/y.json"
+        try:
+            self.assertEqual("/x/y.json", H.survey_cache_path())
+            self.assertEqual("/x/y.json", mod.survey_cache_path())
+        finally:
+            os.environ.pop("SPEC2SI_HOST_SURVEY", None)
+
     def test_post_capture_resume_and_disclosure(self):
         envelope = self.envelope()
         envelope["raw_log"] = "DO_NOT_STORE"

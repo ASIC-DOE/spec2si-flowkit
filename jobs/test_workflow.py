@@ -76,6 +76,48 @@ class ContractTests(unittest.TestCase):
         w.start({"message": "ok", "exit_code": 0})
         picker.assert_called_once_with(hosts=["example.invalid"])
 
+    def test_auto_ranks_with_history_threads_and_the_profile_flow(self):
+        """2026-10-01: `auto` called the picker blind (no history, no thread
+        count), so it could only rank by free threads -- the 2026-07-21 failure
+        mode. It now hands the picker the profile's own finished jobs (flow =
+        profile id) and the job's threads, and keeps the survey."""
+        from . import hosts as H
+        p = profile()
+        p["host_policy"].update(allowed=["a1", "a2"], default="auto", allow_auto=True, threads=16)
+        transport = Mock()
+        transport.run.return_value = Result(UNKNOWN, "a2")
+        seen = {}
+
+        def picker(hosts, jobs=None, flow=None, threads=None):
+            seen.update(hosts=hosts, jobs=jobs, flow=flow, threads=threads)
+            s1 = H.HostState("a1", free=20.0, ncpu=20, load1=0.0, cpu="X")
+            s2 = H.HostState("a2", free=10.0, ncpu=32, load1=22.0, cpu="Y", speed=2.0, nsamp=4)
+            s2.speed_src, s2.score = "host", 2.0 * 10 / 16
+            return "a2", [s2, s1]
+        history = [{"host": "a2", "flow": p["id"], "state": "done", "rate_per_s": 1.0}]
+        w = Workflow(p, lambda **kw: transport, picker, history=lambda: history)
+        ref, _argv = w.prepare({"message": "ok", "exit_code": 0})
+        self.assertEqual("a2", ref["host"])
+        self.assertEqual(dict(hosts=["a1", "a2"], jobs=history, flow=p["id"], threads=16), seen)
+        c = w.host_choice
+        self.assertEqual(("auto", "a2", 16, 1), (c["policy"], c["picked"], c["threads"], c["history_jobs"]))
+        self.assertEqual(["a2", "a1"], [s["host"] for s in c["survey"]])
+        self.assertEqual("host", c["survey"][0]["speed_src"])
+        # an explicit host records no choice
+        w.prepare({"message": "ok", "exit_code": 0}, "a1")
+        self.assertIsNone(w.host_choice)
+
+    def test_threads_and_units_validation(self):
+        for bad in (0, -1, "16", 1.5):
+            p = profile()
+            p["host_policy"]["threads"] = bad
+            with self.subTest(threads=bad), self.assertRaises(ContractError):
+                Workflow(p)
+        p = profile()
+        p["host_policy"]["threads"] = 4
+        p["progress"] = {"tool": "units", "log": "stdout.log"}
+        Workflow(p)                       # accepted
+
     def test_unknown_read_does_not_resubmit(self):
         transport = Mock()
         transport.run.return_value = Result(KNOWN, "example.invalid", rc=0,

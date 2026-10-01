@@ -36,6 +36,23 @@ class StateTests(unittest.TestCase):
         return self.store.start(self.workflow, "request-one", self.parameters,
                                 self.source, "d" * 64, **kw)
 
+    def test_auto_host_choice_is_recorded_beside_the_reference(self):
+        from . import hosts as H
+        p = profile()
+        p["host_policy"].update(allowed=["example.invalid"], default="auto",
+                                allow_auto=True, threads=8)
+
+        def picker(hosts, jobs=None, threads=None):
+            return "example.invalid", [H.HostState("example.invalid", free=30.0, ncpu=32, load1=2.0)]
+        self.workflow = Workflow(p, lambda **kw: self.transport, picker, history=lambda: [])
+        result = self.start()
+        self.assertEqual({"policy": "auto", "picked": "example.invalid", "threads": 8,
+                          "history_jobs": 0}, result["host_choice"])
+        record = self.store.read("request-one")
+        self.assertEqual("example.invalid", record["host_choice"]["survey"][0]["host"])
+        # the reference keeps its exact contract (the hooks check its field set)
+        self.assertNotIn("host_choice", record["reference"])
+
     def test_intent_precedes_dispatch_and_resume_is_live(self):
         def launch(*args, **kw):
             record = self.store.read("request-one")

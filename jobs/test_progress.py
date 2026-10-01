@@ -181,6 +181,22 @@ def test_progress_is_lf_no_bom_and_stdlib():
           "no dataclasses (must run on cluster python 3.6.8)")
 
 
+def test_units_payload_count():
+    """A campaign runner's own count: the LAST line wins, total optional,
+    silence is None (never a fake 0), and stray text is ignored."""
+    text = ("bench a\nFLOWKIT-PROGRESS done=1 total=10\nnoise\n"
+            "FLOWKIT-PROGRESS done=3 total=10\n")
+    r = progress.compute("units", text, elapsed_s=30.0)
+    check(r["done"] == 3 and r["total"] == 10, "last line wins (%r)" % r)
+    check(abs(r["rate_per_s"] - 0.1) < 1e-9, "rate = done/elapsed (%r)" % r)
+    check(r["eta_s"] == 70, "eta from the measured rate (%r)" % r)
+    check(progress.compute("units", "FLOWKIT-PROGRESS done=4\n")["done"] == 4,
+          "total optional")
+    check(progress.compute("units", "no signal here\n") is None, "silence -> None")
+    check(progress.compute("units", "xFLOWKIT-PROGRESS done=9\n") is None,
+          "anchored at line start: an echoed line is not a count")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     bad = 0

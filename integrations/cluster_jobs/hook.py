@@ -30,6 +30,110 @@ GUIDANCE = ("Use the configured jobs.workflow profile for supported compute requ
             "path and failed checks; record what you know with report --task-key K [--cause gate-fail|tool-error|"
             "transport --by agent] [--question ...]; judgement causes are the user's; failures lists open reports.")
 
+#: The host survey `jobs hosts` / a workflow `auto` writes (jobs/hosts.py
+#: `survey_cache_path`; test_hooks holds the two to the same value). One per
+#: USER, so every spec2si repo's sessions see the same last measurement.
+SURVEY_ENV = "SPEC2SI_HOST_SURVEY"
+SURVEY_MAX_AGE = 900.0
+SCRIPT_MAX_BYTES = 65536
+#: A compute LAUNCH: a heavy tool at command position with arguments, the
+#: post-PEX runner, or spectre's APS flag. A path that merely NAMES a tool
+#: (spectre.out, strobe_swing.py) is not a launch.
+COMPUTE = re.compile(
+    r"(?:^|[;&|(`'\"]|\b(?:nohup|setsid|exec|time|then|do)\b|asic_tools\.csh|\$\{?AT\}?)"
+    r"[ \t]*(?:\S*/)?(?:spectre|calibre|innovus|genus|xrun|irun|vcs|virtuoso)"
+    r"(?=[ \t]+[-+\w./$\"'])|enob_run\.sh|\+aps\b", re.M)
+
+
+def survey_cache_path():
+    return os.environ.get(SURVEY_ENV) or os.path.join(
+        os.path.expanduser("~"), ".spec2si", "host_survey.json")
+
+
+def jobs_command(cfg):
+    """`py -3 -m deployment.bnl.jobs.workflow` -> `py -3 -m deployment.bnl.jobs`"""
+    return re.sub(r"\.workflow\b", "", cfg["entrypoint"], count=1)
+
+
+def _local_path(token):
+    p = os.path.expandvars(os.path.expanduser(token.strip("\"'")))
+    m = re.match(r"^/([A-Za-z])/(.*)$", p)
+    if m and os.name == "nt":            # a Git-Bash spelling of a Windows path
+        p = m.group(1) + ":/" + m.group(2)
+    return p
+
+
+def _ssh_host(command, cfg):
+    """The cluster host of the first `ssh <host>` in the command, or None."""
+    m = re.search(r"(?:^|[\s;&|(])ssh[ \t]+(.*)", command)
+    if not m:
+        return None
+    words = m.group(1).split()
+    i = 0
+    while i < len(words) and words[i].startswith("-"):
+        i += 2 if words[i] in ("-o", "-p", "-i", "-l", "-F", "-J") else 1
+    if i >= len(words):
+        return None
+    host = words[i].rsplit("@", 1)[-1]
+    return host if host in cfg["hosts"] else None
+
+
+def launch_advice(command, cfg, now=None):
+    """Advice -- never a denial -- when a command sends COMPUTE to a cluster
+    host by hand: what the last host survey says about that choice.
+
+    2026-10-01: a 16-thread post-PEX spectre run went by `ssh asic8 bash -s <
+    script` to an idle Xeon W-2155 and took ~2x the 9950X3D's time; the picker
+    existed and was never consulted. The hook cannot probe the cluster (it runs
+    on every command and executes nothing), so it quotes the survey `jobs
+    hosts` last wrote and, without a recent one, says how to get it. A script
+    behind `<` is read (bounded, read-only) to tell a launch from a file check;
+    one that cannot be read (an unexpanded shell variable) yields no advice
+    rather than a guess."""
+    import time as _t
+    host = _ssh_host(command, cfg)
+    if host is None:
+        return None
+    text = command
+    for tok in re.findall(r"(?<!<)<(?!<)\s*(\"[^\"]+\"|'[^']+'|[^\s;&|<>()]+)", command)[:3]:
+        try:
+            with open(_local_path(tok), encoding="utf-8", errors="replace") as fh:
+                text += "\n" + fh.read(SCRIPT_MAX_BYTES)
+        except (OSError, ValueError):
+            continue
+    if not COMPUTE.search(text):
+        return None
+    cmd = jobs_command(cfg) + " hosts --threads N --pick"
+    short = host.split(".")[0]
+    try:
+        with open(survey_cache_path(), encoding="utf-8") as fh:
+            survey = json.load(fh)
+        age = (now if now is not None else _t.time()) - float(survey["time"])
+    except (OSError, ValueError, KeyError, TypeError):
+        survey, age = None, None
+    if survey is None or age is None or age < 0 or age > SURVEY_MAX_AGE or not survey.get("picked"):
+        return ("Host check: compute is being launched on %s by hand, with no host survey from the last "
+                "%d min. Cluster hosts differ ~2x in speed by CPU model and their load moves: run `%s` "
+                "(prints the best host for an N-thread job) before a long run." % (short, SURVEY_MAX_AGE // 60, cmd))
+    picked = survey["picked"].split(".")[0]
+    mins = int(age // 60)
+    thr = survey.get("threads")
+    if picked == short:
+        return "Host check: %s is the current pick (host survey %d min old%s)." % (
+            short, mins, ", %s threads" % thr if thr else "")
+    row = dict((r.get("host", "").split(".")[0], r) for r in survey.get("rows", [])).get(short, {})
+    why = []
+    if row.get("wallx"):
+        why.append("expected wall time %.2fx the pick's" % row["wallx"])
+    if row.get("cpu") and row["cpu"] != "-":
+        why.append("CPU %s" % row["cpu"])
+    if isinstance(row.get("free"), (int, float)):
+        why.append("%.1f threads free" % row["free"])
+    return ("Host check: compute is being launched on %s, but the host survey (%d min old%s) picks %s%s. "
+            "Prefer the pick unless there is a reason; refresh with `%s`." % (
+                short, mins, ", %s threads" % thr if thr else "", picked,
+                (" -- %s: %s" % (short, ", ".join(why))) if why else "", cmd))
+
 
 def load_config(path):
     with open(path, encoding="utf-8") as fh:
@@ -397,7 +501,11 @@ def handle(event, cfg):
                        "Reuse the same key after interruption; never create another key to retry an uncertain launch. "
                        "Cross-session record paths (may include unresolved reservations): " + json.dumps(records[:20]) +
                        ("; use tasks to list all records." if len(records) > 20 else ""))
-        return context(kind, GUIDANCE + " Entry point: " + cfg["entrypoint"] +
+        hosts_note = (" Choose cluster hosts by MEASUREMENT, not by load alone (hosts differ ~2x in speed "
+                      "by CPU model): a profile whose host_policy default is auto picks by measured speed "
+                      "and free threads itself; for anything launched by hand run `" + jobs_command(cfg) +
+                      " hosts --threads N --pick` first (it prints the best host for an N-thread job).")
+        return context(kind, GUIDANCE + hosts_note + " Entry point: " + cfg["entrypoint"] +
                        durable +
                        ". Profiles: " + json.dumps(profiles) +
                        ". Cached references (observations may be stale; query resume): " +
@@ -437,8 +545,18 @@ def handle(event, cfg):
                        note +
                        " Collect before reporting results. Use the validated engineering field and failed/missing checks; never infer pass from process exit or hashes."
                        " If collect wrote a failure_report, give the user its path.")
-    if kind == "PreToolUse" and opaque:
-        return context(kind, "Guard cannot inspect this script/stdin/inline-code payload. Use the configured workflow for compute; this path has advisory coverage only.")
+    if kind == "PreToolUse":
+        notes = []
+        if opaque:
+            notes.append("Guard cannot inspect this script/stdin/inline-code payload. Use the configured workflow for compute; this path has advisory coverage only.")
+        try:
+            advice = launch_advice(command, cfg)
+        except Exception:                 # advice must never turn into a blocked command
+            advice = None
+        if advice:
+            notes.append(advice)
+        if notes:
+            return context(kind, " ".join(notes))
     return {}  # No 'allow': never override another hook or permission policy.
 
 
