@@ -180,8 +180,11 @@ class HookTests(unittest.TestCase):
 
     def test_no_advice_for_file_checks_unreadable_scripts_or_other_hosts(self):
         self.survey("fast.example.invalid", [])
+        # the last line is the first live false positive (2026-10-01): a quoted
+        # tool name inside a pgrep search pattern is not a launch
         reads = self.script("ls.sh", "ls -la run/spectre.out\npython3 strobe_swing.py run/psf\n"
-                                     "grep -c spectre run.log\n")
+                                     "grep -c spectre run.log\n"
+                                     "pgrep -u $USER -f \"spectre .*run.scs\" | head -3\n")
         self.assertNotIn("Host check", self.advice("ssh compute.example.invalid bash -s < " + reads))
         self.assertNotIn("Host check", self.advice("ssh compute.example.invalid bash -s < $UNSET_VAR/x.sh"))
         go = self.script("go.sh", "spectre +aps run.scs\n")
@@ -191,6 +194,8 @@ class HookTests(unittest.TestCase):
     def test_inline_compute_is_seen_without_a_script(self):
         self.survey("fast.example.invalid", [], age=7200.0)
         self.assertIn("Host check", self.advice("ssh compute.example.invalid 'cd w && spectre +aps run.scs'"))
+        self.assertIn("Host check", self.advice("ssh -o BatchMode=yes compute.example.invalid "
+                                                "\"calibre -drc rules.cal\""))
 
     def test_advice_failure_never_blocks_a_command(self):
         from . import hook as H

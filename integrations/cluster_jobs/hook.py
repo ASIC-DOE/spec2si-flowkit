@@ -39,10 +39,14 @@ SCRIPT_MAX_BYTES = 65536
 #: A compute LAUNCH: a heavy tool at command position with arguments, the
 #: post-PEX runner, or spectre's APS flag. A path that merely NAMES a tool
 #: (spectre.out, strobe_swing.py) is not a launch.
+#: A quote counts as command position only right after `ssh <host>`: anywhere
+#: else it is an argument (`pgrep -f "spectre .*run.scs"` is a search, not a
+#: launch -- measured 2026-10-01, the first live false positive).
+_TOOLS = r"(?:\S*/)?(?:spectre|calibre|innovus|genus|xrun|irun|vcs|virtuoso)(?=[ \t]+[-+\w./$\"'])"
 COMPUTE = re.compile(
-    r"(?:^|[;&|(`'\"]|\b(?:nohup|setsid|exec|time|then|do)\b|asic_tools\.csh|\$\{?AT\}?)"
-    r"[ \t]*(?:\S*/)?(?:spectre|calibre|innovus|genus|xrun|irun|vcs|virtuoso)"
-    r"(?=[ \t]+[-+\w./$\"'])|enob_run\.sh|\+aps\b", re.M)
+    r"(?:^|[;&|(`]|\b(?:nohup|setsid|exec|time|then|do)\b|asic_tools\.csh|\$\{?AT\}?)[ \t]*" + _TOOLS +
+    r"|\bssh[ \t]+(?:-[oplFJi][ \t]+\S+[ \t]+|-\S+[ \t]+)*\S+[ \t]+[\"'][ \t]*" + _TOOLS +
+    r"|enob_run\.sh|\+aps\b", re.M)
 
 
 def survey_cache_path():
