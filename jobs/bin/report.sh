@@ -70,11 +70,24 @@ ncpu() {
 	echo 0
 }
 
+cpu_model() {
+	# the CPU model string; '' if unknowable. Free threads say how much ROOM a
+	# host has, not how fast it is: on 2026-10-01 an idle Xeon W-2155 ran a
+	# 16-thread spectre job ~2x slower than the Ryzen 9950X3D next door. The
+	# model lets hosts.py pool measured speed across identical machines.
+	if [ -r /proc/cpuinfo ]; then
+		sed -n 's/^model name[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo 2>/dev/null | head -n 1
+		return
+	fi
+	printf ''
+}
+
 cmd_probe() {
 	_host=$(host_short)
 	_epoch=$(now)
 	_load=$(load1)
 	_ncpu=$(ncpu)
+	_cpu=$(cpu_model)
 	# $JOBS lives on the shared NFS home. Touching it triggers the autofs
 	# mount; report whether it is present and how many job dirs exist. A
 	# first-access ENOENT here is the automount race remote.py retries.
@@ -91,8 +104,8 @@ cmd_probe() {
 		_ok=false
 		_n=0
 	fi
-	printf '{"schema":%s,"kind":"probe","host":"%s","epoch":%s,"load1":%s,"ncpu":%s,"jobs_dir_ok":%s,"njobs":%s}\n' \
-		"$SCHEMA" "$(jstr "$_host")" "$_epoch" "$_load" "$_ncpu" "$_ok" "$_n"
+	printf '{"schema":%s,"kind":"probe","host":"%s","epoch":%s,"load1":%s,"ncpu":%s,"cpu":"%s","jobs_dir_ok":%s,"njobs":%s}\n' \
+		"$SCHEMA" "$(jstr "$_host")" "$_epoch" "$_load" "$_ncpu" "$(jstr "$_cpu")" "$_ok" "$_n"
 }
 
 # pull one "key":<value> out of a job's json line. Works for our own

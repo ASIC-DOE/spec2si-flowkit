@@ -14,9 +14,19 @@ Ranking is `free = ncpu - load1`, not load alone -- load 4 is idle on a
 back KNOWN is never a candidate: an unreachable host is unknown, not empty
 (remote.py invariants 5 and 7).
 
-Speed per core is deliberately NOT modelled. It would need a benchmark to
+Speed per core is deliberately NOT a table. It would need a benchmark to
 stay honest, and a hardcoded speed table is exactly the kind of constant
-that rots silently; CANDIDATES order is used only to break ties.
+that rots silently; CANDIDATES order is used only to break ties. Speed comes
+from MEASURED finished jobs (`speeds`), and since 2026-10-01 a host with too
+little history of its own borrows the measurement of hosts with the SAME CPU
+MODEL, which the probe reports (`pool_by_cpu`): on that day an idle Xeon
+W-2155 (asic8, one sample at a neutral 1.00x) was chosen over the 9950X3D
+for a 16-thread spectre run that then took ~2x as long, while asic7 -- the
+same Xeon -- already had five samples at 0.29x.
+
+`--threads N` scores the job's own demand: speed x min(1, free/N), so a fast
+host with part of the threads free is weighed against an idle slow one
+instead of being gated in or out by a fixed MIN_FREE.
 """
 import os
 
@@ -50,22 +60,57 @@ class HostState(object):
     finished jobs exist to measure it; 1.0 means "typical", not "unknown"."""
 
     def __init__(self, host, free=None, ncpu=None, load1=None, why="",
-                 speed=None, nsamp=0):
+                 speed=None, nsamp=0, cpu=None, mode=None):
         self.host, self.free, self.ncpu = host, free, ncpu
         self.load1, self.why = load1, why
         self.speed, self.nsamp = speed, nsamp
+        #: the CPU model the probe reported ('' / None from an older reader)
+        self.cpu = cpu
+        #: where `speed` came from: 'host' (its own jobs), 'cpu' (pooled over
+        #: hosts with the same CPU model) or None (no measurement: 1.0)
+        self.speed_src = None
+        #: speed x min(1, free/threads) when pick() was given `threads`
+        self.score = None
+        #: the transport mode that answered, when it is not the default
+        self.mode = mode
 
     def __repr__(self):
         return "HostState(%s, free=%s, speed=%s, why=%r)" % (
             self.host, self.free, self.speed, self.why)
 
 
-def _probe_one(host, timeout, mode):
+#: On Windows the default transport is WSL ssh (ControlMaster); when WSL's ssh
+#: cannot reach a host (measured 2026-10-01: every probe "bundle install
+#: failed" or timed out at 20 s) the Windows OpenSSH client still can, given a
+#: cold-connect allowance. Only a probe falls back -- it reads, it launches
+#: nothing -- and the state says which transport answered.
+FALLBACK_MODE = "winssh"
+FALLBACK_TIMEOUT = 45.0
+
+
+def _windows():
+    """os.name == 'nt' -- a function so the fallback can be tested anywhere"""
+    return os.name == "nt"
+
+
+def _probe_raw(host, timeout, mode):
     try:
         t = remote.Transport(host=host, mode=mode, timeout=timeout)
-        r = t.probe()
+        return t.probe(), None
     except Exception as e:                    # transport construction/IO
-        return HostState(host, why="probe error: %s" % e)
+        return None, "probe error: %s" % e
+
+
+def _probe_one(host, timeout, mode):
+    r, err = _probe_raw(host, timeout, mode)
+    used = None
+    if (r is None or not r.ok) and mode is None and _windows() \
+            and not os.environ.get("ASICJOBS_RSH"):
+        r2, err2 = _probe_raw(host, max(timeout, FALLBACK_TIMEOUT), FALLBACK_MODE)
+        if r2 is not None and r2.ok:
+            r, err, used = r2, None, FALLBACK_MODE
+    if r is None:
+        return HostState(host, why=err)
     if not r.ok:
         return HostState(host, why="%s: %s" % (r.status, r.reason or "?"))
     d = r.data or {}
@@ -78,11 +123,14 @@ def _probe_one(host, timeout, mode):
         load = float(d.get("load1") or 0)
     except (TypeError, ValueError):
         return HostState(host, why="unparsable ncpu/load1")
+    cpu = d.get("cpu") or None
     if ncpu <= 0:
         # an older bundle predates the ncpu field; rank it last rather than
         # guessing a core count.
-        return HostState(host, why="no ncpu (stale reader?)", load1=load)
-    return HostState(host, free=ncpu - load, ncpu=ncpu, load1=load)
+        return HostState(host, why="no ncpu (stale reader?)", load1=load,
+                         cpu=cpu, mode=used)
+    return HostState(host, free=ncpu - load, ncpu=ncpu, load1=load, cpu=cpu,
+                     mode=used)
 
 
 def survey(hosts=None, timeout=12.0, mode=None, workers=12):
@@ -121,8 +169,13 @@ def speeds(jobs, flow=None):
     history -- this costs no extra round trips.
 
     Restricted to one flow because rate is in tool units: an enob
-    conversions/s means nothing next to a calibre rules/s.
+    conversions/s means nothing next to a calibre rules/s. With `flow=None`
+    each flow is normalized ON ITS OWN and the per-flow factors are combined
+    (`_combine_flows`); until 2026-10-01 `flow=None` pooled the raw rates of
+    every flow, so a host's "speed" was mostly which flows it happened to run.
     """
+    if flow is None:
+        return _combine_flows(jobs)
     by_host = {}
     for j in jobs:
         if flow and j.get("flow") != flow:
@@ -147,8 +200,63 @@ def speeds(jobs, flow=None):
     return {h: (m / ref, len(by_host[h])) for h, m in meds.items()}
 
 
+def _combine_flows(jobs):
+    """host -> (speed, n): every flow normalized on its own (`speeds(flow=f)`)
+    and the factors combined as an n-weighted GEOMETRIC mean -- a ratio is
+    multiplicative, and an arithmetic mean of 0.25x and 4x would read 2.1x
+    for a host that is typical on average. A flow measured on one host only
+    says nothing about relative speed (its factor is 1.0 by construction)
+    and is left out."""
+    import math
+    flows = sorted(set(j.get("flow") for j in jobs if j.get("flow")))
+    acc = {}
+    for f in flows:
+        sp = speeds(jobs, flow=f)
+        if len(sp) < 2:
+            continue
+        for h, (v, n) in sp.items():
+            a = acc.setdefault(h, [0.0, 0])
+            a[0] += n * math.log(v)
+            a[1] += n
+    return {h: (math.exp(lw / n), n) for h, (lw, n) in acc.items() if n}
+
+
+#: Below this many finished jobs of its own, a host borrows the pooled speed
+#: of every host with the same CPU model (its own samples included).
+MIN_OWN_SAMPLES = 3
+
+
+def pool_by_cpu(states, min_own=MIN_OWN_SAMPLES):
+    """Fill thin speed estimates from identical machines, in place.
+
+    A host's measured speed is noise until it has a few samples: on
+    2026-10-01 asic8 sat at a neutral 1.00x on ONE job while asic7, the same
+    Xeon W-2155, had five at 0.29x. Hosts are grouped by the CPU model their
+    probe reported; a host with fewer than `min_own` samples takes the
+    n-weighted geometric mean over its group when the group knows more than
+    it does. A host with no CPU model (an older reader) is never pooled --
+    two blanks are not evidence of the same machine.
+    """
+    import math
+    groups = {}
+    for s in states:
+        if s.cpu and s.speed is not None:
+            g = groups.setdefault(s.cpu, [0.0, 0])
+            g[0] += s.nsamp * math.log(s.speed)
+            g[1] += s.nsamp
+    for s in states:
+        if s.speed is not None:
+            s.speed_src = "host"
+        if not s.cpu or s.cpu not in groups:
+            continue
+        lw, n = groups[s.cpu]
+        if n and s.nsamp < min_own and n > s.nsamp:
+            s.speed, s.nsamp, s.speed_src = math.exp(lw / n), n, "cpu"
+    return states
+
+
 def pick(hosts=None, min_free=MIN_FREE, timeout=12.0, mode=None,
-         jobs=None, flow=None):
+         jobs=None, flow=None, threads=None):
     """(host, states) -- the best host with at least `min_free` threads, or
     (None, states) when none qualifies. Never silently falls back to a busy
     host.
@@ -159,7 +267,14 @@ def pick(hosts=None, min_free=MIN_FREE, timeout=12.0, mode=None,
     free threads say how much room there is, not how fast the work will go.
     Capacity remains a hard gate and the tie-break; hosts with no history
     score a neutral 1.0, so an unmeasured host still beats a measurably slow
-    one and loses to a measurably fast one.
+    one and loses to a measurably fast one. Thin histories are pooled across
+    hosts with the same CPU model (`pool_by_cpu`).
+
+    With `threads` (the job's own thread count, e.g. spectre +mt=16) the
+    ranking is by `score = speed x min(1, free / threads)`: the throughput the
+    job can expect there. A fast host with half the threads it wants free
+    scores half -- weighed honestly against an idle slow host rather than
+    passed by the fixed MIN_FREE gate as if room did not matter.
     """
     states = survey(hosts, timeout=timeout, mode=mode)
     if jobs:
@@ -170,12 +285,20 @@ def pick(hosts=None, min_free=MIN_FREE, timeout=12.0, mode=None,
         for s in states:
             if s.host.lower() in sp:
                 s.speed, s.nsamp = sp[s.host.lower()]
+        pool_by_cpu(states)
+    for s in states:
+        if s.free is not None and threads:
+            sp1 = s.speed if s.speed is not None else 1.0
+            s.score = sp1 * max(0.0, min(1.0, s.free / float(threads)))
     ok = [s for s in states if s.free is not None and s.free >= min_free]
     if not ok:
         return None, states
     order = {s.host: i for i, s in enumerate(states)}
-    ok.sort(key=lambda s: (-(s.speed if s.speed is not None else 1.0),
-                           -s.free, order[s.host]))
+    if threads:
+        ok.sort(key=lambda s: (-s.score, -s.free, order[s.host]))
+    else:
+        ok.sort(key=lambda s: (-(s.speed if s.speed is not None else 1.0),
+                               -s.free, order[s.host]))
     return ok[0].host, states
 
 
@@ -311,19 +434,46 @@ class SharedReader(object):
         return call
 
 
-def format_table(states):
+def _cpu_short(cpu):
+    """'AMD Ryzen 9 9950X3D 16-Core Processor' -> '9950X3D';
+    'Intel(R) Xeon(R) W-2155 CPU @ 3.30GHz' -> 'W-2155'."""
+    if not cpu:
+        return "-"
+    import re
+    words = [w for w in re.split(r"\s+", cpu.replace("(R)", "").replace("(TM)", ""))
+             if w and w not in ("AMD", "Intel", "CPU", "Processor", "Ryzen",
+                                "Xeon", "Core", "EPYC", "Gold", "Silver")
+             and not w.startswith("@") and not w.endswith("GHz")
+             and not re.match(r"^\d+-Core$", w)]
+    best = [w for w in words if re.search(r"\d", w) and len(w) >= 4]
+    return (best or words or ["?"])[-1][:12]
+
+
+def format_table(states, threads=None):
     w = max([len(s.host) for s in states] + [4])
-    lines = ["%-*s %7s %6s %6s %7s  %s" % (w, "HOST", "THREADS", "LOAD1",
-                                           "FREE", "SPEED", "NOTE")]
+    head = "%-*s %-9s %7s %6s %6s %7s %-5s" % (w, "HOST", "CPU", "THREADS",
+                                               "LOAD1", "FREE", "SPEED", "FROM")
+    if threads:
+        head += " %7s" % "WALLx"
+    lines = [head + "  NOTE"]
+    best = max([s.score for s in states if s.score] or [0])
     for s in states:
         if s.free is None:
-            lines.append("%-*s %7s %6s %6s %7s  %s" % (
-                w, s.host, "-", "-", "-", "-", s.why))
+            lines.append("%-*s %-9s %7s %6s %6s %7s %-5s%s  %s" % (
+                w, s.host, _cpu_short(s.cpu), "-", "-", "-", "-", "-",
+                (" %7s" % "-") if threads else "", s.why))
             continue
         sp = "-" if s.speed is None else "%.2fx" % s.speed
         note = "" if s.speed is None else "(n=%d)" % s.nsamp
-        lines.append("%-*s %7.0f %6.2f %6.1f %7s  %s" % (
-            w, s.host, s.ncpu, s.load1, s.free, sp, note))
+        if s.mode:
+            note += (" " if note else "") + "via %s" % s.mode
+        row = "%-*s %-9s %7.0f %6.2f %6.1f %7s %-5s" % (
+            w, s.host, _cpu_short(s.cpu), s.ncpu, s.load1, s.free, sp,
+            s.speed_src or "-")
+        if threads:
+            # expected wall time relative to the best-scoring host
+            row += " %7s" % (("%.2f" % (best / s.score)) if s.score else "inf")
+        lines.append(row + "  " + note)
     return lines
 
 

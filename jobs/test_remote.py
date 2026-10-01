@@ -253,6 +253,10 @@ def test_ship_and_probe_end_to_end():
                   % r.data.get("njobs"))
             check("host" in r.data and "epoch" in r.data,
                   "probe carries host+epoch")
+            # the CPU model hosts.pool_by_cpu groups by: a string (possibly
+            # empty off Linux), and valid JSON however odd the model name
+            check(isinstance(r.data.get("cpu"), str),
+                  "probe carries the cpu model (%r)" % r.data.get("cpu"))
 
         # status of an absent job = a KNOWN 'NOTFOUND', NOT a transport miss
         r = t.status("no-such-job")

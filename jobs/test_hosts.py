@@ -48,8 +48,9 @@ def fake(table):
         ncpu, load = float(d["ncpu"]), float(d["load1"])
         if ncpu <= 0:
             return hosts.HostState(host, why="no ncpu (stale reader?)",
-                                   load1=load)
-        return hosts.HostState(host, free=ncpu - load, ncpu=ncpu, load1=load)
+                                   load1=load, cpu=d.get("cpu"))
+        return hosts.HostState(host, free=ncpu - load, ncpu=ncpu, load1=load,
+                               cpu=d.get("cpu"))
     return probe_one
 
 
@@ -226,6 +227,133 @@ def test_format_table():
     check("HOST" in lines[0] and "FREE" in lines[0], "table header")
     check(any("19.5" in ln for ln in lines), "free rendered (%r)" % lines)
     check(any("UNKNOWN" in ln for ln in lines), "reason rendered for dead host")
+
+
+RYZEN = "AMD Ryzen 9 9950X3D 16-Core Processor"
+XEON = "Intel(R) Xeon(R) W-2155 CPU @ 3.30GHz"
+
+
+def _jobs(spec, flow="enob"):
+    """spec: host -> list of rates"""
+    return [_job(h, flow, r) for h, rs in spec.items() for r in rs]
+
+
+def test_pool_by_cpu_the_2026_10_01_case():
+    """asic8 idle with ONE job at a neutral 1.00x, asic7 -- the same Xeon --
+    with five at 0.29x, asic6 (9950X3D) partly loaded and measurably fast.
+    Per-host speed sent the 16-thread run to asic8; pooled by CPU model the
+    Xeon reads ~0.36x and the Ryzen wins."""
+    table = {"asic6": {"ncpu": 32, "load1": 16.5, "cpu": RYZEN},
+             "asic7": {"ncpu": 20, "load1": 3.1, "cpu": XEON},
+             "asic8": {"ncpu": 20, "load1": 0.1, "cpu": XEON}}
+    # rates chosen so the per-host medians normalize to ~2.4 / 0.29 / 1.0
+    jobs = _jobs({"asic6": [2.4] * 18, "asic7": [0.29] * 5, "asic8": [1.0]})
+    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
+                                                       flow="enob", threads=16))
+    st = dict((s.host, s) for s in states)
+    check(st["asic8"].speed_src == "cpu" and st["asic8"].nsamp == 6,
+          "thin asic8 pooled with asic7 (%r)" % st["asic8"])
+    check(st["asic8"].speed < 0.5, "pooled Xeon speed is slow (%r)" % st["asic8"].speed)
+    check(st["asic6"].speed_src == "host", "asic6 keeps its own 18 samples")
+    check(host == "asic6", "the fast box wins (got %r)" % host)
+    # NEGATIVE CONTROL: without CPU models nothing pools -> asic8 at 1.0
+    # still loses to asic6 on speed... so make asic6 busier, where the
+    # pooled answer and the per-host answer must DIFFER.
+    table2 = dict(table)
+    table2["asic6"] = {"ncpu": 32, "load1": 26.0, "cpu": RYZEN}      # 6 free
+    host2, _ = with_fake(table2, lambda: hosts.pick(list(table2), jobs=jobs,
+                                                    flow="enob", threads=16))
+    blind = dict((h, dict(d, cpu=None)) for h, d in table2.items())
+    host3, st3 = with_fake(blind, lambda: hosts.pick(list(blind), jobs=jobs,
+                                                     flow="enob", threads=16))
+    st3 = dict((s.host, s) for s in st3)
+    check(st3["asic8"].speed_src == "host" and st3["asic8"].nsamp == 1,
+          "no CPU model -> no pooling (%r)" % st3["asic8"])
+    check(host3 == "asic8" and host2 == "asic6",
+          "pooling changes the answer: blind %r, pooled %r" % (host3, host2))
+
+
+def test_pool_never_crosses_cpu_models():
+    table = {"asic9": {"ncpu": 20, "load1": 0.0, "cpu": XEON},
+             "asic6": {"ncpu": 32, "load1": 0.0, "cpu": RYZEN}}
+    jobs = _jobs({"asic9": [1.0], "asic6": [2.0] * 10, "asic2": [1.0]})
+    _, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
+                                                    flow="enob"))
+    st = dict((s.host, s) for s in states)
+    check(st["asic9"].speed_src == "host" and st["asic9"].nsamp == 1,
+          "a thin Xeon does not borrow the Ryzen's speed (%r)" % st["asic9"])
+
+
+def test_threads_weigh_room_against_speed():
+    """A fast host with too few free threads for the job is not a free pass."""
+    table = {"asic6": {"ncpu": 32, "load1": 25.0, "cpu": RYZEN},     # 7 free
+             "asic10": {"ncpu": 24, "load1": 0.0, "cpu": "X"}}        # 24 free
+    jobs = _jobs({"asic6": [1.1] * 5, "asic10": [1.0] * 5, "asic2": [1.0]})
+    h_speed, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
+                                                     flow="enob"))
+    h_thr, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
+                                                        flow="enob", threads=16))
+    check(h_speed == "asic6", "speed-only ranking takes the faster box")
+    check(h_thr == "asic10", "16 threads into 7 free loses to an idle peer (%r)" % h_thr)
+    st = dict((s.host, s) for s in states)
+    check(abs(st["asic6"].score - 1.1 * 7 / 16.0) < 0.02, "score = speed x free/threads")
+    lines = hosts.format_table(states, threads=16)
+    check("WALLx" in lines[0], "wall-time ratio column with --threads")
+    check(any(ln.startswith("asic10") and " 1.00 " in ln for ln in lines),
+          "the best host reads 1.00 (%r)" % lines)
+
+
+def test_flow_none_normalizes_each_flow_first():
+    """Raw rates of different flows are different units: asic9 ran calibre
+    (rules/s, large numbers) as well as enob, asic6 only enob. Pooling raw
+    rates called asic9 the fast one; per-flow it is the slow one."""
+    jobs = (_jobs({"asic6": [0.3, 0.3], "asic9": [0.1, 0.1]}, "enob")
+            + _jobs({"asic9": [10.0, 12.0]}, "calibre"))
+    sp = hosts.speeds(jobs)                      # flow=None
+    check(sp["asic6"][0] > sp["asic9"][0],
+          "per-flow combination: asic6 faster (%r)" % sp)
+    check("asic9" in sp and sp["asic9"][1] == 2,
+          "a flow seen on one host only adds no samples (%r)" % sp)
+    # the per-flow path is unchanged
+    check(hosts.speeds(jobs, flow="calibre") == {"asic9": (1.0, 2)},
+          "single-flow speeds unchanged")
+
+
+def test_cpu_short_names():
+    check(hosts._cpu_short(RYZEN) == "9950X3D", hosts._cpu_short(RYZEN))
+    check(hosts._cpu_short(XEON) == "W-2155", hosts._cpu_short(XEON))
+    check(hosts._cpu_short(None) == "-" and hosts._cpu_short("") == "-", "blank")
+
+
+def test_windows_probe_falls_back_to_winssh():
+    """2026-10-01: from Windows every WSL-ssh probe failed, the Windows
+    OpenSSH client reached all of them. A failed default-mode probe is
+    retried over winssh; an explicit mode or ASICJOBS_RSH is never
+    second-guessed."""
+    calls = []
+
+    def raw(host, timeout, mode):
+        calls.append((mode, timeout))
+        if mode == hosts.FALLBACK_MODE:
+            return _R(True, {"ncpu": 20, "load1": 1.0, "jobs_dir_ok": True,
+                             "cpu": XEON}), None
+        return _R(False, None, status="UNKNOWN", reason="timeout"), None
+    orig_raw, orig_win = hosts._probe_raw, hosts._windows
+    hosts._probe_raw, hosts._windows = raw, (lambda: True)
+    try:
+        st = hosts._probe_one("asic9", 12.0, None)
+        check(st.free == 19.0 and st.mode == hosts.FALLBACK_MODE and st.cpu == XEON,
+              "fallback answered (%r)" % st)
+        check(calls[1][1] >= hosts.FALLBACK_TIMEOUT, "with the cold-connect allowance")
+        del calls[:]
+        st = hosts._probe_one("asic9", 12.0, "wsl")
+        check(st.free is None and len(calls) == 1, "explicit mode: no fallback")
+        hosts._windows = lambda: False
+        del calls[:]
+        st = hosts._probe_one("asic9", 12.0, None)
+        check(st.free is None and len(calls) == 1, "not Windows: no fallback")
+    finally:
+        hosts._probe_raw, hosts._windows = orig_raw, orig_win
 
 
 def main():

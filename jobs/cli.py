@@ -436,6 +436,12 @@ def build_parser():
     hp.add_argument("--min-free", type=float, default=hosts.MIN_FREE)
     hp.add_argument("--flow", default=None,
                     help="weight by measured speed on this flow (e.g. enob)")
+    hp.add_argument("--threads", type=int, default=None,
+                    help="the job's thread count (spectre +mt=N): rank by "
+                         "speed x min(1, free/N) and show the expected wall-time ratio")
+    hp.add_argument("--pick", action="store_true",
+                    help="print ONLY the chosen host on stdout (table on stderr), "
+                         "for scripts; exit 3 when none qualifies")
 
     tp = sub.add_parser("top", parents=[g],
                         help="live all-jobs dashboard (refreshing ls)")
@@ -460,6 +466,8 @@ def build_parser():
     r = sub.add_parser("run", parents=[g],
                        help="launch a detached, self-reporting job")
     r.add_argument("--flow", default="job")
+    r.add_argument("--threads", type=int, default=None,
+                   help="with --host auto: the job's thread count (see `hosts --threads`)")
     r.add_argument("--target", default="run")
     r.add_argument("--interval", type=int, default=5)
     r.add_argument("--expect", action="append",
@@ -479,25 +487,45 @@ def _job_history(host, mode, timeout):
     """Every host's finished jobs, in ONE call -- $JOBS is shared NFS, so
     any reachable host answers for the whole cluster. Returns [] on any
     failure: speed weighting is an enhancement, never a prerequisite."""
-    try:
-        r = remote.Transport(host=host, mode=mode, timeout=timeout).list()
-    except Exception:
-        return []
-    return (r.data or {}).get("jobs", []) if r.ok else []
+    def once(m, tmo):
+        try:
+            r = remote.Transport(host=host, mode=m, timeout=tmo).list()
+        except Exception:
+            return None
+        return (r.data or {}).get("jobs", []) if r.ok else None
+    jobs = once(mode, timeout)
+    if jobs is None and mode is None and hosts._windows() \
+            and not os.environ.get("ASICJOBS_RSH"):
+        # the same WSL-transport fallback as hosts._probe_one: without it a
+        # Windows caller silently lost every speed measurement
+        jobs = once(hosts.FALLBACK_MODE, max(timeout or 0, hosts.FALLBACK_TIMEOUT))
+    return jobs or []
 
 
 def cmd_hosts(t, ns):
     """Show what --host auto sees. Same probe, same history, same ranking --
-    so the choice is inspectable rather than a black box."""
+    so the choice is inspectable rather than a black box. With --pick only the
+    chosen host goes to stdout, so a launch script can take it:
+        H=$(python3 -m jobs hosts --threads 16 --pick) || exit 1"""
     jobs = _job_history(ns.host, ns.mode, ns.timeout)
+    threads = getattr(ns, "threads", None)
     host, states = hosts.pick(min_free=ns.min_free, timeout=ns.timeout,
-                              mode=ns.mode, jobs=jobs, flow=ns.flow)
-    for ln in hosts.format_table(states):
-        print(ln)
-    if ns.flow:
-        print("(SPEED = measured relative throughput on flow '%s')" % ns.flow)
-    print("\npick (min-free %.1f): %s" % (ns.min_free, host or
-                                          "NONE -- every host is busy"))
+                              mode=ns.mode, jobs=jobs, flow=ns.flow,
+                              threads=threads)
+    out = sys.stderr if getattr(ns, "pick", False) else sys.stdout
+    for ln in hosts.format_table(states, threads=threads):
+        print(ln, file=out)
+    print("(SPEED = measured relative throughput %s; FROM host = its own jobs, "
+          "cpu = pooled over hosts with the same CPU model)"
+          % ("on flow '%s'" % ns.flow if ns.flow else "per flow, combined"), file=out)
+    if threads:
+        print("(WALLx = expected wall time vs the best host for a %d-thread job)"
+              % threads, file=out)
+    print("\npick (min-free %.1f%s): %s" % (
+        ns.min_free, ", %d threads" % threads if threads else "",
+        host or "NONE -- every host is busy"), file=out)
+    if getattr(ns, "pick", False) and host:
+        print(host)
     return 0 if host else 3
 
 
@@ -512,12 +540,13 @@ def _resolve_host(ns):
     seed = os.environ.get("ASIC_SEED_HOST") or hosts.candidates()[0]
     flow = getattr(ns, "flow", None)
     jobs = _job_history(seed, ns.mode, ns.timeout)
+    threads = getattr(ns, "threads", None)
     host, states = hosts.pick(timeout=ns.timeout, mode=ns.mode, jobs=jobs,
-                              flow=flow)
+                              flow=flow, threads=threads)
     if host is None:
         print("jobs: --host auto found no host with >= %.1f free threads:"
               % hosts.MIN_FREE, file=sys.stderr)
-        for ln in hosts.format_table(states):
+        for ln in hosts.format_table(states, threads=threads):
             print("  " + ln, file=sys.stderr)
         return 4
     best = [s for s in states if s.host == host][0]
