@@ -36,6 +36,31 @@ jobs:
           python docs/test_mdrender.py
           python docs/test_texrender.py
 
+      # ⭐ THE FLOWKIT'S DOCS DESCRIBE WHAT A PORT CONTAINS (`docs/gen.py`,
+      # `analog/specs/flow_policy.json`, ...), and the claims gate checks them
+      # against the ports `consumers.json` registers -- workstation paths CI
+      # never has, so 19 correct claims gated here. Shared pages may only name
+      # paths every port has, and spec2si-tsmc28 has every path these docs
+      # cite, so one shallow clone is a sound reference. It is private: a
+      # read-only deploy key. Fork PRs get no secrets, so they warn and run
+      # without it.
+      - name: clone a reference port for the claims gate
+        env:
+          PORT_KEY: ${{ secrets.CLAIMS_PORT_SSH_KEY }}
+        run: |
+          if [ -z "$PORT_KEY" ]; then
+            echo "::warning::CLAIMS_PORT_SSH_KEY unavailable (fork PR?): port-relative claims will gate"
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$PORT_KEY" | tr -d '\r' > "$RUNNER_TEMP/port_key"
+          # GitHub's published Ed25519 host key, as in sync-asic-doe.yml.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/port_known_hosts"
+          GIT_LFS_SKIP_SMUDGE=1 GIT_SSH_COMMAND="ssh -i '$RUNNER_TEMP/port_key' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$RUNNER_TEMP/port_known_hosts'" \
+            git clone --quiet --depth 1 git@github.com:mandalsoumyajit/spec2si-tsmc28.git "$RUNNER_TEMP/spec2si-tsmc28"
+          rm -f "$RUNNER_TEMP/port_key"
+          echo "CLAIMS_PORTS=$RUNNER_TEMP/spec2si-tsmc28" >> "$GITHUB_ENV"
+
       - name: runnable-claim gate (negative control first)
         run: |
           python docs/test_claims.py --self-test

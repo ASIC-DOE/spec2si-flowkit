@@ -89,10 +89,21 @@ SKIP_GENRES = ("reference",)
 #: `localize`, only so the self-test can point it at a fixture tree.
 MNT = "/mnt"
 
+#: how a NATIVE Windows python spells drive `{}`, or None anywhere else. A
+#: module global for the same reason as MNT: the self-test points it at a
+#: fixture tree.
+DRIVES = "{}:/" if os.name == "nt" else None
+
 
 def localize(path):
     """`C:\\dev\\X` -> `/mnt/c/dev/X` when running under WSL, which is where
-    python actually lives on the Windows box; any other path is returned as-is.
+    python actually lives on the Windows box, and `/mnt/c/dev/X` ->
+    `C:/dev/X` under a native Windows python; any other path is returned as-is.
+
+    ⚠ BOTH DIRECTIONS. The shared guides switched to the `/mnt/c/dev/...`
+    spelling on 2026-09-25 so they would resolve under WSL, and from then on
+    a native-Windows run -- the ports' own pre-commit hooks -- read that `cd`
+    as a missing directory and failed `python3 sync.py` in every port.
 
     ⭐ THE ONE COPY. `sync.py` imports this rather than keeping its own: it
     lives in the flowkit beside this file, while this file is vendored and must
@@ -102,10 +113,14 @@ def localize(path):
     looked for as a relative directory called `C:` -- the `cd C:\\dev\\
     spec2si-flowkit` in the vendored guides read as two false GATING findings
     in every port, and `consumers.json` resolved to no ports at all."""
-    if os.path.isdir(os.path.join(MNT, "c")) and \
-            re.match(r"^[A-Za-z]:[\\/]", path):
-        return "{}/{}/{}".format(MNT, path[0].lower(),
-                                 path[3:].replace("\\", "/"))
+    if os.path.isdir(os.path.join(MNT, "c")):
+        if re.match(r"^[A-Za-z]:[\\/]", path):
+            return "{}/{}/{}".format(MNT, path[0].lower(),
+                                     path[3:].replace("\\", "/"))
+        return path
+    m = re.match(r"^/mnt/([a-z])/(.*)$", path)
+    if m and DRIVES:
+        return DRIVES.format(m.group(1)) + m.group(2)
     return path
 
 
@@ -120,12 +135,36 @@ def _resolves_in(root, cwd, rel):
     resolve to the sibling checkout, which is what the sentence means and
     what a reader would do.
     """
+    return os.path.exists(os.path.join(_cd_base(root, cwd),
+                                       rel.replace("/", os.sep)))
+
+
+def _cd_base(root, cwd):
+    """The directory a block's `cd` lands in, by `_resolves_in`'s rules."""
     cwd = localize(cwd).replace("\\", os.sep)
     if len(cwd) > 2 and (cwd[1] == ":" or cwd.startswith("/")):
-        base = cwd
-    else:
-        base = os.path.join(root, cwd)
-    return os.path.exists(os.path.join(base, rel.replace("/", os.sep)))
+        return cwd
+    return os.path.join(root, cwd)
+
+
+def _uncloned_cd(root, cwd):
+    """True when a block `cd`-ed into a `spec2si-*` checkout this machine does
+    not have -- the command-line half of `_sibling`'s UNCLONED.
+
+    ⚠ The path half learned this first; the `cd` half did not, so the shared
+    guides' `cd /mnt/c/dev/spec2si-flowkit` + `python3 sync.py` failed in CI
+    in every port from 2026-09-05 on: CI clones one repo and never the
+    flowkit. A command run inside a sibling nobody cloned is unanswerable,
+    not broken. A `cd` into a checkout that IS here but lacks the script still
+    gates, and so does a `cd` into a gone directory that is not `spec2si-*`.
+    """
+    # Every `spec2si-*` prefix, not the first: in CI the ROOT is itself
+    # `.../spec2si-<port>/spec2si-<port>`, so `cd ../spec2si-flowkit` passes
+    # through a sibling that exists before reaching the one that does not.
+    parts = re.split(r"[\\/]", os.path.normpath(_cd_base(root, cwd)))
+    return any(part.startswith("spec2si-")
+               and not os.path.isdir("/".join(parts[:i + 1]) or "/")
+               for i, part in enumerate(parts))
 
 
 def _skip(rel):
@@ -133,6 +172,10 @@ def _skip(rel):
             or rel.startswith("~") or rel.startswith("$") or rel.startswith("/")
             or rel.split("/")[0] in PLACEHOLDER_HEADS
             or any(rel.startswith(b) for b in BUILD_DIRS))
+
+
+#: extra port checkouts for `_consumer_roots`, for a caller with no workstation
+PORTS_ENV = "CLAIMS_PORTS"
 
 
 def _consumer_roots(root):
@@ -145,17 +188,24 @@ def _consumer_roots(root):
     correct README as broken in five places. `consumers.json` is a
     machine-readable registry of exactly where the ports are, so the gate asks
     it rather than special-casing a repo name.
+
+    ⚠ `consumers.json` holds WORKSTATION paths, so CI found no ports and the
+    flowkit's own gate failed 19 correct claims there. `$CLAIMS_PORTS`
+    (os.pathsep-separated) adds port checkouts the caller cloned itself; the
+    flowkit's docs workflow clones one. It adds to the registry, never
+    replaces it, and a listed directory that is not there is ignored.
     """
+    out = [p for p in os.environ.get(PORTS_ENV, "").split(os.pathsep)
+           if p and os.path.isdir(p)]
     path = os.path.join(root, "consumers.json")
     if not os.path.exists(path):
-        return []
+        return out
     try:
         import json
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
-        return []
-    out = []
+        return out
     for c in data.get("consumers", []):
         p = localize(c.get("path") or "")
         if p and os.path.isdir(p):
@@ -449,7 +499,8 @@ def audit(root):
                 for s in CMD_RE.findall(line):
                     if _skip(s):
                         continue
-                    if cwd and _resolves_in(root, cwd, s):
+                    if cwd and (_resolves_in(root, cwd, s)
+                                or _uncloned_cd(root, cwd)):
                         continue
                     cmdlines.append((s, line))
                     scripts.add(s)
@@ -500,11 +551,13 @@ def audit(root):
 
 def self_test():
     """Negative control: a gate is not believed until it has been made to fail."""
-    global MNT
+    global MNT, DRIVES
     tmp = tempfile.mkdtemp(prefix="claims-selftest-")
     mnt = tempfile.mkdtemp(prefix="claims-selftest-mnt-")
     sep = tempfile.mkdtemp(prefix="claims-selftest-sep-")
-    saved_mnt = MNT
+    port = tempfile.mkdtemp(prefix="claims-selftest-port-")
+    saved_mnt, saved_drives = MNT, DRIVES
+    saved_ports = os.environ.pop(PORTS_ENV, None)
     try:
         os.makedirs(os.path.join(tmp, "engine"))
         with open(os.path.join(tmp, "engine", "run.py"), "w",
@@ -570,8 +623,78 @@ def self_test():
             print("SELF-TEST FAIL: a drive-letter `cd` to a missing checkout "
                   "must still report the script: %r" % (f_gone,))
             return 1
+
+        # ⭐ A `cd` INTO AN UNCLONED `spec2si-*` CHECKOUT IS UNANSWERABLE --
+        # the shared guides' `cd /mnt/c/dev/spec2si-flowkit` in a CI that only
+        # ever has the port. Its controls: a `spec2si-*` checkout that IS here
+        # but lacks the script still gates, and `gone` above still gates.
+        os.makedirs(os.path.join(mnt, "c", "dev", "spec2si-claims-selftest-here"))
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(fm.format("guide") + "# uncloned\n\n```bash\n"
+                     "cd /mnt/c/dev/spec2si-claims-selftest-absent\n"
+                     "python3 sync.py --to x\n```\n")
+        _, f_unc = audit(tmp)
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(drive.format("spec2si-claims-selftest-here"))
+        _, f_here = audit(tmp)
+        if f_unc or [(k, x) for _d, _g, k, x in f_here] != [("script", "sync.py")]:
+            print("SELF-TEST FAIL: a `cd` into an uncloned spec2si-* checkout "
+                  "must be silent (%r) and one that is here but lacks the "
+                  "script must gate (%r)" % (f_unc, f_here))
+            return 1
+        # ...from a root that is itself under a `spec2si-*` directory, as CI's
+        # `.../spec2si-<port>/spec2si-<port>` is: the sibling that exists on
+        # the way must not answer for the one that does not.
+        here = os.path.join(mnt, "c", "dev", "spec2si-claims-selftest-here")
+        nested = os.path.join(here, "spec2si-claims-selftest-here")
+        os.makedirs(nested)
+        if not _uncloned_cd(nested, "../spec2si-claims-selftest-absent") or \
+                _uncloned_cd(nested, "../spec2si-claims-selftest-here"):
+            print("SELF-TEST FAIL: a relative `cd` from inside a spec2si-* "
+                  "root misjudged which sibling is cloned")
+            return 1
+
+        # ⭐ AND THE OTHER DIRECTION: under a NATIVE Windows python (the ports'
+        # pre-commit hooks) a `/mnt/c/dev/...` `cd` must reach `C:/dev/...`.
+        # No WSL mount here, so `DRIVES` stands in for the drive root.
+        MNT = os.path.join(tmp, "no-wsl-mount")
+        DRIVES = mnt.replace("\\", "/") + "/{}/"
+        mnt_cd = fm.format("guide") + \
+            "# native\n\n```bash\ncd /mnt/c/dev/{}\npython3 sync.py --to x\n```\n"
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(mnt_cd.format("kit"))
+        _, f_nat = audit(tmp)
+        with open(os.path.join(tmp, "drive.md"), "w", encoding="utf-8") as fh:
+            fh.write(mnt_cd.format("gone"))
+        _, f_natgone = audit(tmp)
+        if f_nat or [(k, x) for _d, _g, k, x in f_natgone] != \
+                [("script", "sync.py")]:
+            print("SELF-TEST FAIL: natively, a `/mnt/c` `cd` must reach a real "
+                  "checkout (%r) and not a missing one (%r)" % (f_nat, f_natgone))
+            return 1
         os.remove(os.path.join(tmp, "drive.md"))
-        MNT = saved_mnt
+        MNT, DRIVES = saved_mnt, saved_drives
+
+        # ⭐ `$CLAIMS_PORTS` IS A PORT, AND ONLY WHAT IS IN IT. The fixture
+        # port sits outside the corpus, so only the variable can find its file.
+        os.makedirs(os.path.join(port, "docs"))
+        with open(os.path.join(port, "docs", "gen.py"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("")
+        with open(os.path.join(tmp, "port.md"), "w", encoding="utf-8") as fh:
+            fh.write(fm.format("guide") + "# port\n\nEach port runs "
+                     "`docs/gen.py`, never `docs/regen.py`.\n")
+        _, f_noport = audit(tmp)
+        os.environ[PORTS_ENV] = port
+        _, f_port = audit(tmp)
+        os.environ.pop(PORTS_ENV)
+        os.remove(os.path.join(tmp, "port.md"))
+        if sorted(x for _d, _g, _k, x in f_noport) != \
+                ["docs/gen.py", "docs/regen.py"] or \
+                [x for _d, _g, _k, x in f_port] != ["docs/regen.py"]:
+            print("SELF-TEST FAIL: $%s must resolve exactly what the port "
+                  "holds: without %r, with %r" % (PORTS_ENV, f_noport, f_port))
+            return 1
 
         with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
             fh.write(bad)
@@ -659,17 +782,24 @@ def self_test():
 
         print("self-test PASS: clean corpus 0 findings; seeded bad flag, bad "
               "path and missing script all caught in a `guide`; a drive-letter "
-              "`cd` resolves to a real checkout and not to a missing one; the "
+              "`cd` resolves to a real checkout and not to a missing one, a "
+              "`/mnt/c` one does natively too, and one into an uncloned "
+              "`spec2si-*` checkout is silent; `$CLAIMS_PORTS` resolves "
+              "exactly what its port holds; the "
               "same text as a `log` is reported but does not gate; an uncloned "
               "`spec2si-*` sibling is silent and a gone repo gates; an ignored "
               "`work/`, wholly or around a tracked file, does not blind the "
               "ignore probe; and the probe runs where `.git` is a file")
         return 0
     finally:
-        MNT = saved_mnt
+        MNT, DRIVES = saved_mnt, saved_drives
+        os.environ.pop(PORTS_ENV, None)
+        if saved_ports is not None:
+            os.environ[PORTS_ENV] = saved_ports
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(mnt, ignore_errors=True)
         shutil.rmtree(sep, ignore_errors=True)
+        shutil.rmtree(port, ignore_errors=True)
 
 
 def main(argv):
