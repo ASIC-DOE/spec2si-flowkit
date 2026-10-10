@@ -296,7 +296,7 @@ class TaskStore:
     def write_failure(self, workflow, record, result):
         path = os.path.join(self.path(record["task_key"]), "failure.json")
         existing = self.load(path)
-        report = failure.build(record, result, self.related(record), workflow.profile["engineering_report"],
+        report = failure.build(record, result, self.related(record), workflow.report_for(record["reference"]),
                                existing)
         self.save_failure(record["task_key"], report)
         return report

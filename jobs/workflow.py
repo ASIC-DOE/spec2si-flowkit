@@ -153,7 +153,7 @@ def validate_profile(p):
                 "invalid progress total")
     report = p["engineering_report"]
     if report is not None:
-        fields(report, ("parser", "path", "design", "top", "checks", "corners"))
+        fields(report, ("parser", "path", "design", "top", "checks", "corners"), ("per_case",))
         require(report["parser"] == "json-v1" and report["path"] in artifacts,
                 "report must use json-v1 and name a required artifact")
         require(identifier(report["design"]) and identifier(report["top"]), "invalid report design/top")
@@ -161,6 +161,24 @@ def validate_profile(p):
             require(isinstance(report[key], list) and bool(report[key])
                     and all(identifier(v) for v in report[key])
                     and len(set(report[key])) == len(report[key]), "invalid required checks/corners")
+        if "per_case" in report:
+            # Checks that differ per case. The case is resolved from the request digest
+            # (Workflow.report_for), so it must be the profile's only parameter, with choices.
+            per = report["per_case"]
+            fields(per, ("parameter", "cases"))
+            spec = p["parameters"].get(per["parameter"]) if isinstance(per["parameter"], str) else None
+            require(spec is not None and list(p["parameters"]) == [per["parameter"]]
+                    and spec["type"] == "string" and "choices" in spec,
+                    "per_case needs the profile's only parameter, a string with choices")
+            require(isinstance(per["cases"], dict) and set(per["cases"]) == set(spec["choices"]),
+                    "per_case must name every choice")
+            for entry in per["cases"].values():
+                fields(entry, ("checks", "corners"))
+                for key in ("checks", "corners"):
+                    require(isinstance(entry[key], list) and bool(entry[key])
+                            and len(set(entry[key])) == len(entry[key])
+                            and all(isinstance(v, str) for v in entry[key])
+                            and set(entry[key]) <= set(report[key]), "invalid per-case checks/corners")
     return p
 
 
@@ -184,6 +202,21 @@ class Workflow:
                       engineering="unchecked", next_action=next_action, reference=ref)
         result.update(extra)
         return result
+
+    def report_for(self, ref):
+        """The engineering contract one request answers, in the shape the cluster's evidence
+        reader has always read. With per_case, the requested case's checks and corners: the
+        request digest names the case, because the case is the profile's only parameter."""
+        report = self.profile["engineering_report"]
+        if report is None or "per_case" not in report:
+            return report
+        per = report["per_case"]
+        for case, entry in per["cases"].items():
+            if digest({per["parameter"]: case}) == ref["request_sha256"]:
+                resolved = dict((k, v) for k, v in report.items() if k != "per_case")
+                resolved.update(checks=entry["checks"], corners=entry["corners"])
+                return resolved
+        raise ContractError("request names no declared case; reconcile explicitly")
 
     def transport(self, host):
         options = {"isolated_bundle": True} if self.profile.get("isolated_bundle") else {}
@@ -352,6 +385,7 @@ class Workflow:
 
     def _observe(self, reference, collect=False, identity=None):
         ref = self.check_reference(reference)
+        report = self.report_for(ref)
         if ref["job_id"] is None:
             return self.envelope(ref, "submission-unknown", "reconcile")
         require(identifier(ref["job_id"]), "invalid job id")
@@ -389,7 +423,7 @@ class Workflow:
                 # returns the adapter's bounded refusal (pilot.refuse) when the tracker identity holds.
                 checked = transport.evidence(dict(job_id=ref["job_id"], workspace=ref["workspace"],
                                                   repository=ref["repository"], expected_artifacts=expected,
-                                                  report=self.profile["engineering_report"], identity=identity))
+                                                  report=report, identity=identity))
                 detail = checked.data or {}
                 if (checked.status == KNOWN and checked.rc == 0 and detail.get("kind") == "evidence"
                         and detail.get("jobid") == ref["job_id"] and isinstance(detail.get("refusal"), dict)):
@@ -407,7 +441,7 @@ class Workflow:
                                  execution_rc=result.get("rc"), issues=["tracker-verification-failed"])
         checked = transport.evidence(dict(job_id=ref["job_id"], workspace=ref["workspace"],
                                           repository=ref["repository"], expected_artifacts=expected,
-                                          report=self.profile["engineering_report"], identity=identity))
+                                          report=report, identity=identity))
         detail = checked.data or {}
         if (checked.status != KNOWN or checked.rc != 0 or detail.get("kind") != "evidence"
                 or detail.get("jobid") != ref["job_id"]):

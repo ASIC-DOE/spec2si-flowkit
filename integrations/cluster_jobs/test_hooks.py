@@ -71,6 +71,29 @@ class HookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_config(str(path))
 
+    def test_further_adapters_route_to_their_own_profiles(self):
+        from .project import config
+        root = Path(self.tmp.name) / "repo"
+        plain = config(root, "demo", ["run_schematic.sh"])
+        cfg = config(root, "demo", ["run_schematic.sh"], adapters={"sar8": ["run_core.sh", "launch_case.py"],
+                                                                   "sar8-signoff": []})
+        self.assertEqual(plain["routes"], cfg["routes"][:2])
+        profiles = {r["name"]: r["profile"] for r in cfg["routes"]}
+        self.assertEqual(str(root.resolve() / ".tracker-local/sar8/profile.json"), profiles["demo-sar8"])
+        self.assertEqual(profiles["demo-sar8"], profiles["demo-sar8-payload"])
+        self.assertNotIn("demo-sar8-signoff", profiles)     # no raw launchers: only its payload route
+        path = Path(self.tmp.name) / "adapters.json"
+        path.write_text(json.dumps(cfg))
+        cfg = load_config(str(path))
+        for command, route in (("run_schematic.sh w", "demo"), ("sh analog/sim/run_core.sh pex w seg=3", "demo-sar8"),
+                               ("python3 analog/sim/launch_case.py start pex w", "demo-sar8"),
+                               ("python3 /s/deployment/bnl/tracked_job.py run --case x", "demo-payload"),
+                               ("python3 /s/deployment/bnl/tracked_jobs/sar8.py run --case pex", "demo-sar8-payload"),
+                               ("python3 /s/deployment/bnl/tracked_jobs/sar8-signoff.py run --case drc",
+                                "demo-sar8-signoff-payload")):
+            with self.subTest(command=command):
+                self.assertEqual({route}, inspect_command(command, cfg)[0])
+
     def test_compute_subcommand_preserves_preparation_and_status(self):
         self.cfg["routes"][0]["argument_prefixes"] = [["run"], ["launch", "normal"]]
         for command in ("synthetic-eda run", "python3 digital/run.py run --snapshot p",

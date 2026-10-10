@@ -2,6 +2,13 @@
 
 Python 3.6+, stdlib. An adapter supplies SPEC, preflight(snapshot), and
 execute(workspace, case, manifest). Source and private state stay separate.
+
+A repository may hold several adapters. The first one lives at
+deployment/bnl/tracked_job.py and its SPEC names no path. Any further one
+lives at deployment/bnl/tracked_jobs/<id>.py and its SPEC says so with
+"adapter". Each adapter is packaged, staged and profiled on its own, so one
+adapter's declaration never enters another's snapshot or profile. "case_checks"
+optionally narrows the checks and corners that one case reports.
 """
 import argparse
 import base64
@@ -14,11 +21,51 @@ import signal
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from .adapter import require_attached
 from .remote import Transport
 from .state import source_identity
 from .workflow import absolute, digest, relative, validate_profile
+
+
+#: The one adapter a port had before a repository could hold several. A SPEC
+#: without "adapter" is this one: its package, profile and digest are unchanged.
+LEGACY_ADAPTER = "deployment/bnl/tracked_job.py"
+#: Every further adapter: deployment/bnl/tracked_jobs/<SPEC id>.py
+ADAPTERS = "deployment/bnl/tracked_jobs/"
+
+
+def adapter_path(adapter):
+    """The adapter's repository path, which is also its path inside a snapshot."""
+    s = adapter.SPEC
+    if "adapter" not in s:
+        return LEGACY_ADAPTER
+    if not relative(s["adapter"]) or s["adapter"] != ADAPTERS + str(s.get("id")) + ".py":
+        raise ValueError("a further adapter lives at " + ADAPTERS + "<id>.py")
+    return s["adapter"]
+
+
+def requirements(spec):
+    """case -> (checks, corners) that case must report. Every case reports the SPEC's checks and
+    corners, unless "case_checks" names a subset for it (a post-layout case can report fewer
+    checks, or fewer corners, than a schematic case)."""
+    narrowed = spec.get("case_checks", {})
+    if (not isinstance(narrowed, dict) or not set(narrowed) <= set(spec["cases"])
+            or not all(isinstance(e, dict) and set(e) <= {"checks", "corners"} for e in narrowed.values())):
+        raise ValueError("case_checks must map declared cases to checks/corners")
+    result = {}
+    for case in spec["cases"]:
+        entry = narrowed.get(case, {})
+        pair = []
+        for key in ("checks", "corners"):
+            values = entry.get(key, spec[key])
+            if (not isinstance(values, list) or not values or len(set(values)) != len(values)
+                    or not set(values) <= set(spec[key])):
+                raise ValueError("case_checks for %s: %s must be a nonempty subset of the SPEC's" % (case, key))
+            pair.append(list(values))
+        result[case] = tuple(pair)
+    return result
 
 
 def load(path):
@@ -83,11 +130,135 @@ def foreground(argv, env=None, timeout=None):
         for sig, handler in previous.items(): signal.signal(sig, handler)
 
 
+#: A denied or timed-out licence checkout: report.sh's SIG_LICENSE, which the failure report
+#: counts (SPECTRE-209 is what a run whose +lqtimeout expired ends with). Keep the two equal;
+#: test_pilot compares them.
+LICENSE_DENIED = re.compile(r"""SPECTRE-209|[Ll]icen[cs]e.{0,60}(unavailable|denied|not available|exhausted|expired|could not be checked out|check ?out (failed|error))|([Ff]ail(ed|ure)?|[Cc]annot|[Cc]ould not|[Uu]nable) to (check ?out|obtain|acquire|get) .{0,30}[Ll]icen[cs]e|(FLEXnet|FLEXlm) ([Ll]icensing )?[Ee]rror|[Ll]icen[cs]e server .{0,40}(down|not responding)|[Cc]annot connect to (the )?[Ll]icen[cs]e server|Licensed number of users already reached|No such feature exists""")
+
+#: How much of a segment's output a licence scan reads (its tail: a denial ends the run).
+SCAN_TAIL = 1048576
+
+
+class LicenseWait(RuntimeError):
+    """A segment was still waiting on a licence when it ran out of attempts. The case is refused
+    (pilot.refuse names it) rather than scored: a queue wait is neither an engineering result nor a
+    tool failure, and a run of the same case later can succeed unchanged."""
+
+
+def _stamp(path):
+    try:
+        st = os.stat(str(path))
+        return st.st_size, st.st_mtime
+    except OSError:
+        return None
+
+
+def _denied(segment, before):
+    """Did this attempt end on a licence denial? Only what this attempt wrote counts: the output
+    from where it started, and a tool log only if the attempt touched it. A denial left by an
+    earlier attempt must not turn a later, different failure into a queue wait."""
+    texts = []
+    out = Path(segment["out"])
+    start = before[0][0] if before[0] else 0
+    try:
+        with out.open("rb") as fh:
+            size = out.stat().st_size
+            fh.seek(max(start, size - SCAN_TAIL))
+            texts.append(fh.read())
+    except OSError:
+        pass
+    for log, stamp in zip(segment.get("logs", []), before[1:]):
+        if _stamp(log) in (None, stamp):
+            continue
+        try:
+            with open(str(log), "rb") as fh:
+                fh.seek(max(0, os.path.getsize(str(log)) - SCAN_TAIL))
+                texts.append(fh.read())
+        except OSError:
+            pass
+    return any(LICENSE_DENIED.search(t.decode("utf-8", "replace")) for t in texts)
+
+
+def segments(work, slots, env=None, timeout=None, license_retries=1, poll=1.0):
+    """Run independent segments of one case on this host, at most `slots` at once, and wait for
+    all of them. Every segment is its own process group owned by this job: a signal, a timeout or
+    an error stops every running group (as foreground does), so nothing outlives the tracked job.
+
+    work: one dict per segment, argv (list) and out (its stdout and stderr), and optionally logs,
+    the tool logs to scan as well (spectre's +log). A segment that exits on a licence denial (its
+    +lqtimeout ran out) is queued again, up to `license_retries` more times, and is not a failure;
+    still denied, LicenseWait is raised before anything can be scored. `timeout` bounds the whole
+    batch, licence waits included (+lqtimeout bounds each one).
+    -> [dict(index, rc, outcome="done"|"failed", attempts)] in segment order; the adapter decides
+    what a failed segment means and runs its scoring step itself."""
+    if type(slots) is not int or slots < 1 or not work:
+        raise ValueError("segments need work and at least one slot")
+    if not all(isinstance(w.get("argv"), list) and w["argv"] and w.get("out") for w in work):
+        raise ValueError("every segment needs argv and out")
+    pending, running = list(range(len(work))), {}
+    attempts, results, denied = [0] * len(work), [None] * len(work), []
+    deadline = None if timeout is None else time.monotonic() + timeout
+    previous = {}
+
+    def interrupted(number, frame):
+        raise SystemExit(128 + number)
+
+    def stop(process, sig):
+        try: os.killpg(process.pid, sig)
+        except ProcessLookupError: pass
+
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous[sig] = signal.signal(sig, interrupted)
+        while pending or running:
+            while pending and len(running) < slots:
+                i = pending.pop(0)
+                attempts[i] += 1
+                out = Path(work[i]["out"])
+                out.parent.mkdir(parents=True, exist_ok=True)
+                before = [_stamp(out)] + [_stamp(log) for log in work[i].get("logs", [])]
+                with out.open("ab") as fh:
+                    process = subprocess.Popen(work[i]["argv"], env=env, stdin=subprocess.DEVNULL, stdout=fh,
+                                               stderr=subprocess.STDOUT, start_new_session=True)
+                running[i] = (process, before)
+            for i, (process, before) in list(running.items()):
+                rc = process.poll()
+                if rc is None:
+                    continue
+                # A finished leader must not leave background workers either.
+                stop(process, signal.SIGTERM); stop(process, signal.SIGKILL)
+                del running[i]
+                if rc != 0 and _denied(work[i], before):
+                    if attempts[i] <= license_retries:
+                        pending.append(i)
+                    else:
+                        denied.append(i)
+                    continue
+                results[i] = dict(index=i, rc=rc, outcome="done" if rc == 0 else "failed", attempts=attempts[i])
+            if deadline is not None and time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired("segments", timeout)
+            if running:
+                time.sleep(poll)
+    finally:
+        for process, _ in running.values():
+            stop(process, signal.SIGTERM)
+        for process, _ in running.values():
+            try: process.wait(timeout=2)
+            except subprocess.TimeoutExpired: pass
+            stop(process, signal.SIGKILL)
+            process.wait()
+        for sig, handler in previous.items(): signal.signal(sig, handler)
+    if denied:
+        raise LicenseWait("%d of %d segments still waiting on a licence after %d attempts (segments %s)"
+                          % (len(denied), len(work), license_retries + 1, ",".join(map(str, sorted(denied)))))
+    return results
+
+
 def package(adapter, repo, output):
     repo, output = Path(repo).resolve(), Path(output).resolve()
     if output == repo or repo in output.parents:
         raise ValueError("package must be outside source checkout")
-    paths = set(adapter.SPEC["files"] + ["deployment/bnl/tracked_job.py"])
+    paths = set(adapter.SPEC["files"] + [adapter_path(adapter)])
     # The vendored tests never run on the cluster. Packaging them bound every
     # snapshot to them, so a test-only re-vendor made all deployed profiles stale.
     paths.update(p.relative_to(repo).as_posix() for p in (repo / "deployment/bnl/jobs").rglob("*")
@@ -148,14 +319,19 @@ def stage(adapter, package_dir, snapshot):
 
 def profile(adapter, snapshot, host, work_root, mode):
     s = adapter.SPEC
+    report = dict(parser="json-v1", path="report.json", design=s["design"], top=s["top"],
+                  checks=s["checks"], corners=s["corners"])
+    if "case_checks" in s:
+        # Every case spelled out: the evidence reader is handed exactly one case's contract.
+        report["per_case"] = dict(parameter="case", cases={case: dict(checks=checks, corners=corners)
+                                  for case, (checks, corners) in requirements(s).items()})
     return validate_profile(dict(schema=1, id=s["id"], version="1", repository=s["repository"],
         isolated_bundle=True, transport_mode=mode, work_root=work_root, workspace="unique-child",
         lifecycle="foreground", host_policy=dict(allowed=[host], default=host, allow_auto=False),
         parameters={"case": {"type": "string", "choices": s["cases"]}},
-        argv=["/usr/bin/python3", "-B", snapshot + "/deployment/bnl/tracked_job.py", "run", "--snapshot", snapshot,
+        argv=["/usr/bin/python3", "-B", snapshot + "/" + adapter_path(adapter), "run", "--snapshot", snapshot,
               "--case", {"parameter": "case"}], expected_artifacts=["native.json", "report.json"], progress=None,
-        engineering_report=dict(parser="json-v1", path="report.json", design=s["design"], top=s["top"],
-                                checks=s["checks"], corners=s["corners"])))
+        engineering_report=report))
 
 
 def deploy(adapter, repo, package_dir, snapshot, host, work_root, output):
@@ -166,6 +342,12 @@ def deploy(adapter, repo, package_dir, snapshot, host, work_root, output):
     # workflow will refuse (e.g. a corner that is not an identifier) used to
     # leave a staged snapshot behind with no usable profile.
     new_profile = profile(adapter, snapshot, host, work_root, mode)
+    # One output directory is one adapter's current profile. Deploying a second adapter over it
+    # would silently retarget every task that names this profile.
+    current = Path(output).resolve() / "profile.json"
+    if current.exists() and load(current).get("id") != new_profile["id"]:
+        raise ValueError("output holds the profile of adapter %r; deploy %r to its own output"
+                         % (load(current).get("id"), new_profile["id"]))
     package_dir = Path(package_dir).resolve()
     source = load(package_dir / "source.json")
     if source["adapter_sha256"] != digest(adapter.SPEC):
@@ -180,7 +362,7 @@ def deploy(adapter, repo, package_dir, snapshot, host, work_root, output):
     for p in paths:
         if not relative(p) or sha(package_dir / p) != source["files"][p]:
             raise ValueError("package changed")
-    request = dict(snapshot=snapshot, work_root=work_root,
+    request = dict(snapshot=snapshot, work_root=work_root, adapter=adapter_path(adapter),
                    files={p: base64.b64encode((package_dir / p).read_bytes()).decode("ascii")
                           for p in paths + ["source.json"]})
     encoded = base64.b64encode(json.dumps(request).encode()).decode("ascii")
@@ -196,11 +378,12 @@ for name,encoded in r['files'].items():
   with target.open('xb') as f: f.write(data)
 sys.path.insert(0,str(p/'deployment/bnl'))
 from jobs import pilot
-adapter=pilot.module(p/'deployment/bnl/tracked_job.py')
+adapter=pilot.module(p/r['adapter'])
 snapshot=Path(r['snapshot'])
 if snapshot.exists():
- m=pilot.load(snapshot/'manifest.json'); pilot.verify(snapshot,m)
- if m['source']!=pilot.load(p/'source.json')['source']: raise ValueError('snapshot source differs')
+ m=pilot.load(snapshot/'manifest.json'); pilot.verify(snapshot,m); packaged=pilot.load(p/'source.json')
+ if m['source']!=packaged['source']: raise ValueError('snapshot source differs')
+ if m['adapter_sha256']!=packaged['adapter_sha256']: raise ValueError('snapshot holds another adapter')
 else: m=pilot.stage(adapter,p,snapshot)
 Path(r['work_root']).mkdir(parents=True,exist_ok=True)
 print(json.dumps(dict(schema=1,manifest=m)))
@@ -282,7 +465,8 @@ def _run(adapter, snapshot, case, stage):
     stage[0] = "checks"
     rec.progress(1, 2, "stages")
     verify(snapshot, manifest)
-    required = {(n, c) for n in s["checks"] for c in s["corners"]}
+    names, corners = requirements(s)[case]
+    required = {(n, c) for n in names for c in corners}
     if (len(checks) != len(required) or {(c["name"], c["corner"]) for c in checks} != required
             or any(c["status"] not in ("pass", "fail") for c in checks)):
         raise ValueError("adapter omitted declared checks")
