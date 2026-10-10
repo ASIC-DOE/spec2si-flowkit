@@ -209,79 +209,84 @@ the ordinary work the migrated flows cover.
 
 Run on 2026-10-09/10 on SUPERTJHOK-ROG with the commands above, and on
 2026-10-10 on LIO-180105 with the same script, the same hook (tsmc65
-`e5014ce7`) and the same exclusions (draft, awaiting the owner's review). The
-session listings found **no further development sessions** on either machine.
-Besides the two already excluded, every session active in the window was
-engineering: on SUPERTJHOK-ROG the AFE trim DAC, comparator preamplifier, ADC
-driver capacitor, POR design, DSP model fixes and the AFE fast path; on
-LIO-180105 the v2 DSP design, v3 ASIC planning, the v3 readout channel RTL, and
-one session whose first prompt only updates the repositories. Counts are in
-`C:/dev/.spec2si-job-state/after-20261009/after-<repo>.json` (SUPERTJHOK-ROG)
-and the paper repository (Agent_Compiled_AMS_Paper), LIO-180105 data folder, `after-tsmc65.json`.
+`e5014ce7`) and the same exclusions (draft, awaiting the owner's review).
+Condition A was then also measured on LIO-180105 (same window and rules as
+above, from the machine's transcript archive), so **both windows cover both
+machines**. The session listings found **no further development sessions** on
+either machine. Besides the two already excluded, every session active in the
+after window was engineering: on SUPERTJHOK-ROG the AFE trim DAC, comparator
+preamplifier, ADC driver capacitor, POR design, DSP model fixes and the AFE fast
+path; on LIO-180105 the v2 DSP design, v3 ASIC planning, the v3 readout channel
+RTL, and one session whose first prompt only updates the repositories. Counts
+are in `C:/dev/.spec2si-job-state/after-20261009/after-<repo>.json`
+(SUPERTJHOK-ROG) and the paper repository (Agent_Compiled_AMS_Paper),
+LIO-180105 data folder, `after-tsmc65.json` and `before-tsmc65.json`.
 
 **tsmc28, xt011 and sky130 had no ordinary sessions in the window** on
 SUPERTJHOK-ROG (no transcript at all after the exclusions), and the archived
 transcript metrics show none on LIO-180105. They are not measured; their zeros
 are absence, not behaviour. Everything below is tsmc65.
 
-**Condition A covers one machine.** It was measured on SUPERTJHOK-ROG only.
-LIO-180105 also had five tsmc65 sessions in A's window (about 110 prompts by the
-archived transcript metrics) that A does not count. Per-day comparisons with A
-therefore use SUPERTJHOK-ROG alone. The after window's own counts (tracked
-starts, escapes, coverage) and the per-launch ratios use both machines.
-
 The after window is 14 days, with tool activity on all 14; condition A is 25
 days. Per-day figures are the total divided by those. "Launches" are untracked
-EDA launches, other compute runs and tracked starts.
+EDA launches, other compute runs and tracked starts. Condition A's
+SUPERTJHOK-ROG column is the Results table above; LIO-180105 adds 6 sessions
+and 102 prompts to it.
 
-| Measure (tsmc65) | Condition A, 25 days | After, ROG | After, LIO | After, both, 14 days | A per day | ROG after per day |
-|---|---:|---:|---:|---:|---:|---:|
-| Sessions (with a launch) | 24 (13) | 9 (5) | 5 (2) | 14 (7) | 0.96 | 0.64 |
-| User prompts | 1,051 | 403 | 183 | 586 | 42 | 29 |
-| Tool calls / cluster calls | 29,482 / 8,041 | 15,539 / 3,876 | 6,541 / 1,154 | 22,080 / 5,030 | 1,179 / 322 | 1,110 / 277 |
-| **EDA launches, untracked** (detached) | **375** (44, 12 %) | 143 (4) | 2 (0) | **145** (4, 3 %) | 15.0 | 10.2 |
-| Other cluster compute runs (detached) | 607 (36, 6 %) | 64 (6) | 90 (83) | 154 (89, 58 %) | 24.3 | 4.6 |
-| Untracked launches that were detached | 80 / 982, 8 % | 10 / 207 | 83 / 92 | **93 / 299, 31 %** | | |
-| Cluster reads | 5,197 | 1,158 | 413 | 1,571 | 208 | 83 |
-| Reads per untracked launch | 5.3 | 5.6 | 4.5 | 5.3 | | |
-| Reads per launch, tracked starts included | 5.3 | 3.5 | 2.6 | **3.2** | | |
-| Transfers | 1,630 | 838 | 178 | 1,016 | 65 | 60 |
-| Hours in cluster calls (calls over 10 min) | 45.5 (13) | 64.2 (19) | 24.9 (20) | 89.1 (39) | 1.8 | 4.6 |
-| … per launch | 2.8 min | 11.7 min | 9.5 min | **11.0 min** | | |
-| … of which in tracked `collect` | — | 36.1 (1) | not split | ≥ 36.1 | — | 2.6 |
-| `sleep` hours inside commands | 12.2 | 9.4 | 2.0 | 11.4 | 0.49 | 0.67 |
-| Wait-tool calls | 51 | 110 | 85 | 195 | 2.0 | 7.9 |
-| Kills (per 100 launches) | 61 (6.2) | 22 (6.7) | 13 (8.3) | 35 (7.2) | 2.4 | 1.6 |
-| Exact repeated EDA launches | 6 | 0 | 0 | 0 | | |
-| Opaque scripts, share of cluster calls | 171, 2 % | 1,212, 31 % | 326, 28 % | 1,538, 31 % | | |
-| **Migrated flows** | | | | | | |
-| Tracked starts | 0 | 122 | 65 | **187** | 0 | 8.7 |
-| Tracked collects | 0 | 345 | 94 | 439 | | |
-| Refused by the hook | — | 0 | 0 | 0 | | |
-| Untracked launches of a migrated flow that ran | — | 0 | 0 | **0** | | |
-| Tracked share (starts / starts + escapes) | — | 1.0 | 1.0 | **1.0** (187 / 187) | | |
-| Tracked starts, share of all launches | 0 | 37 % | 41 % | **38 %** (187 / 486) | | |
+| Measure (tsmc65) | A, ROG | A, LIO | **A, both** (25 d) | After, ROG | After, LIO | **After, both** (14 d) | A per day | After per day |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Sessions (with a launch) | 24 (13) | 6 (3) | 30 (16) | 9 (5) | 5 (2) | 14 (7) | 1.2 | 1.0 |
+| User prompts | 1,051 | 102 | 1,153 | 403 | 183 | 586 | 46 | 42 |
+| Tool calls / cluster calls | 29,482 / 8,041 | 3,331 / 572 | 32,813 / 8,613 | 15,539 / 3,876 | 6,541 / 1,154 | 22,080 / 5,030 | 1,313 / 345 | 1,577 / 359 |
+| **EDA launches, untracked** (detached) | 375 (44) | 14 (4) | **389** (48, 12 %) | 143 (4) | 2 (0) | **145** (4, 3 %) | 15.6 | 10.4 |
+| Other cluster compute runs (detached) | 607 (36) | 83 (25) | 690 (61, 9 %) | 64 (6) | 90 (83) | 154 (89, 58 %) | 27.6 | 11.0 |
+| Untracked launches that were detached | 80 / 982, 8 % | 29 / 97, 30 % | **109 / 1,079, 10 %** | 10 / 207, 5 % | 83 / 92, 90 % | **93 / 299, 31 %** | | |
+| Cluster reads | 5,197 | 234 | 5,431 | 1,158 | 413 | 1,571 | 217 | 112 |
+| Reads per untracked launch | 5.3 | 2.4 | 5.0 | 5.6 | 4.5 | 5.3 | | |
+| Reads per launch, tracked starts included | 5.3 | 2.4 | **5.0** | 3.5 | 2.6 | **3.2** | | |
+| Transfers | 1,630 | 90 | 1,720 | 838 | 178 | 1,016 | 69 | 73 |
+| Hours in cluster calls (calls over 10 min) | 45.5 (13) | 11.3 (2) | 56.8 (15) | 64.2 (19) | 24.9 (20) | 89.1 (39) | **2.3** | **6.4** |
+| … per launch | 2.8 min | 7.0 min | **3.2 min** | 11.7 min | 9.5 min | **11.0 min** | | |
+| … of which in tracked `collect` | — | — | — | 36.1 (1) | not split | ≥ 36.1 | — | ≥ 2.6 |
+| `sleep` hours inside commands | 12.2 | 0.4 | 12.6 | 9.4 | 2.0 | 11.4 | 0.50 | 0.81 |
+| Wait-tool calls | 51 | 26 | 77 | 110 | 85 | 195 | 3.1 | 13.9 |
+| Kills (per 100 launches) | 61 (6.2) | 13 (13.4) | 74 (6.9) | 22 (6.7) | 13 (8.3) | 35 (7.2) | 3.0 | 2.5 |
+| Exact repeated EDA launches | 6 | 0 | 6 | 0 | 0 | 0 | | |
+| Opaque scripts, share of cluster calls | 171, 2 % | 138, 24 % | 309, 4 % | 1,212, 31 % | 326, 28 % | 1,538, 31 % | | |
+| **Migrated flows** | | | | | | | | |
+| Tracked starts | 0 | 0 | 0 | 122 | 65 | **187** | 0 | 13.4 |
+| Tracked collects | 0 | 0 | 0 | 345 | 94 | 439 | | |
+| Refused by the hook | — | — | — | 0 | 0 | 0 | | |
+| Untracked launches of a migrated flow that ran | — | — | — | 0 | 0 | **0** | | |
+| Tracked share (starts / starts + escapes) | — | — | — | 1.0 | 1.0 | **1.0** (187 / 187) | | |
+| Tracked starts, share of all launches | 0 | 0 | 0 | 37 % | 41 % | **38 %** (187 / 486) | | |
 
-The SUPERTJHOK-ROG count of 9 sessions includes one that only received a task
-notification in the window; 8 did work, 5 launched on the cluster. On
-LIO-180105 the listing shows four session ids and the script counts five; the
-difference is not resolved. The script's `days_active` counts session start
-days, not active days. The tracked class (571 calls) is smaller than starts +
-collects (626) because the class is first-match and some tracked calls sit
-inside compound commands classified otherwise.
+The SUPERTJHOK-ROG count of 9 after-window sessions includes one that only
+received a task notification in the window; 8 did work, 5 launched on the
+cluster. On LIO-180105 the after-window listing shows four session ids and the
+script counts five, and the A window counts six sessions and 102 prompts where
+the archived transcript metrics show five and 112. The two scripts count
+differently (this one counts session files and prompts inside the window only),
+so only this script's counts are pooled here. The script's `days_active` counts
+session start days, not active days. The tracked class (571 calls) is smaller
+than starts + collects (626) because the class is first-match and some tracked
+calls sit inside compound commands classified otherwise.
 
 **Did the migrated flows get tracked?** Yes, completely, on both machines, as
 far as the guard can see: 187 tracked starts (122 + 65), 0 untracked launches of
 a migrated executable, 0 refusals (none was needed), and no start returned an
-error to the session. On SUPERTJHOK-ROG all 122 starts were **Spectre
+error to the session. **At least 168 of the 187 starts (90 %) were Spectre
 campaigns** (`.tracker-local/campaign/`, added 2026-09-26, host choice
-2026-10-01), and the digital smoketest synthesis, the flow migrated at
-activation, was not run once. LIO-180105's 65 starts are not split by route in
-its counts; one of its sessions was RTL work, so some may be the smoketest
-synthesis (`--sample tracked:N` on that machine would tell). The guard
-recognises a campaign only by its payload (`tracked_campaign.py`), not an ad-hoc
-campaign script, so "0 escapes" means no one ran the payload outside the
-tracker, not that every campaign-like run was tracked.
+2026-10-01): all 122 on SUPERTJHOK-ROG and 46 on LIO-180105. A route tally on
+LIO-180105 (counts only, from `--sample tracked:1000` held in memory) found 46
+campaign starts, 5 starts by another route and 14 not separable (inside
+compound commands). None of the 5 used a `.tracker-local` profile (two passed a
+profile from elsewhere, three the default), so the route is unidentified; none
+was the digital smoketest synthesis, the flow migrated at activation, which was
+not run on either machine. The guard recognises a campaign only by its payload
+(`tracked_campaign.py`), not an ad-hoc campaign script, so "0 escapes" means no
+one ran the payload outside the tracker, not that every campaign-like run was
+tracked.
 
 **How much of the ordinary work do they cover?** About two fifths by launch
 call: 187 tracked starts of 486 launches (38 %; 37 % on SUPERTJHOK-ROG, 41 % on
@@ -296,37 +301,38 @@ use the campaign route at all (the ADC driver capacitor session, 85 untracked
 launches, ending 2026-09-30; one with a single compute run). There, the
 untracked remainder is mostly foreground Spectre and Python runs through the
 tool wrapper. **LIO-180105 has a different shape**: almost no untracked licensed
-launches (2), but 90 other compute runs, 83 of them detached. That is
-unmigrated Python work run in the background, the pattern the readout episode
-showed; it is the largest untracked class in the window and no route covers it.
+launches (2), but 90 other compute runs, 83 of them detached: unmigrated Python
+work run in the background, the pattern the readout episode showed. It is the
+largest untracked class in the window and no route covers it.
 
 **Did waiting and monitoring change?** Monitoring per launch fell once tracked
-starts are counted (3.2 reads per launch against 5.3; 3.5 and 2.6 by machine),
-and on SUPERTJHOK-ROG reads per day fell from 208 to 83. Detached untracked
-licensed launches fell from 12 % to 3 %. Detached runs overall did not: 31 % of
-untracked launches were detached (93 of 299, almost all LIO-180105's compute),
-against 8 % in A, so jobs whose only record is the conversation persist, moved
-from licensed tools to unmigrated compute. Kills fell per day on SUPERTJHOK-ROG
-(2.4 to 1.6) but not per launch (6.2 per 100 in A, 6.7 after; 7.2 with
-LIO-180105). Waiting did **not** shrink: the session sat in cluster calls 11.0
-min per launch against 2.8 (on SUPERTJHOK-ROG 4.6 h a day against 1.8), and
+starts are counted (3.2 reads per launch against 5.0; 3.5 and 2.6 by machine),
+and reads per day halved (217 to 112). Detached untracked licensed launches fell
+from 12 % to 3 %. Detached runs overall did not fall: 31 % of untracked launches
+were detached, against 10 % in A. That is mostly a machine habit, not a shift:
+LIO-180105 already ran 30 % of its untracked launches detached in A (90 % after),
+SUPERTJHOK-ROG 8 % (5 % after), and LIO-180105's share of untracked launches
+grew from 9 % to 31 %. Either way, jobs whose only record is the conversation
+persist, in unmigrated compute. Kills fell per day (3.0 to 2.5) but not per
+launch (6.9 per 100 in A, 7.2 after). Waiting did **not** shrink: sessions sat
+in cluster calls 6.4 h a day against 2.3 (11.0 min per launch against 3.2), and
 36.1 of SUPERTJHOK-ROG's 64.2 h were tracked `collect --wait` calls (bounded at
 nine minutes, so only one ran over ten; LIO-180105's 20 calls over ten minutes
 are therefore not collects). The tracker moved waiting from `sleep` loops and log
 tails into collects, which are cheaper per call and end in a normalized report,
-but the conversation still blocks on them. Literal `sleep` (0.67 h a day on
-SUPERTJHOK-ROG) and wait-tool calls (7.9 a day) did not fall either.
+but the conversation still blocks on them. Literal `sleep` (0.50 to 0.81 h a
+day) and wait-tool calls (3.1 to 13.9 a day) did not fall either.
 
 **Caveats.**
 - One repository, 14 days, 7 launching sessions on two machines, three of which
   dominate; the campaign route existed from day 2 of the window and changed
   (host choice) on day 7. This is a description of this window, not an effect
   size.
-- Condition A covers SUPERTJHOK-ROG only (above). Re-running A on LIO-180105's
-  surviving or archived transcripts would make both windows two-machine.
+- LIO-180105's condition A comes from its transcript archive;
+  transcripts that expired before the archive was made are missing from it.
 - The classes are the same heuristics as condition A; precision was checked by
-  hand there, not re-checked here.
-- **Opaque share 31 %** (1,538 of 5,030 cluster calls, against 2 % in A): the
+  hand there (SUPERTJHOK-ROG), not re-checked here.
+- **Opaque share 31 %** (1,538 of 5,030 cluster calls, against 4 % in A): the
   campaigns' scripts are built by copying and editing earlier ones, so their
   content is not in the transcript. Untracked launches, detached ones most, are
   undercounted, and coverage is overstated by an unknown amount.
