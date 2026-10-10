@@ -75,6 +75,11 @@ The frozen sets are `worker/contracts/frozen/` and `worker/contracts/frozen-trac
    run tracked in tsmc65 (`tracked_campaign.py`, live canary pass 2/2). A
    scheduled task runs the measurement on 2026-10-09 09:00 and drafts the result
    into agentic_baseline.md for review (uncommitted).
+   **Drafted 2026-10-10, awaiting review**: "The after measurement: result" in
+   agentic_baseline.md (tsmc65 only, both machines; 187 tracked starts, 0
+   escapes, 38 % of launch calls tracked; waiting moved into collects, not
+   down; unmigrated detached compute on LIO-180105 is the largest untracked
+   class). Condition A is one machine only. Review, then commit both files.
 3. **Report upkeep** (below), now with the §8 result to summarize first.
 
 **§9.2 is done** (2026-09-26): ten reviewed worker attempts, eleven runs. Read
