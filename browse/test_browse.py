@@ -2876,6 +2876,29 @@ def test_the_top_cell_is_derived_from_the_stream_not_guessed():
     assert model.gds_top(two) == ["a", "b"]
 
 
+def test_klayouts_context_structure_is_neither_a_top_nor_an_instance():
+    """KLayout writes `$$$CONTEXT_INFO$$$` into every stream it saves: an
+    unreferenced structure (so a naive search sees two tops) that REFERENCES
+    the library and PCell cells it describes -- the top among them, so a
+    naive search can also see none. Both were measured on the photonics
+    port's design store, one stream each."""
+    # the helper files every reference under the LAST cell: here, the
+    # context structure, which references the real top
+    p = _gds_with(["leaf", "top", "$$$CONTEXT_INFO$$$"], ["top"])
+    # leaf is unreferenced in this fixture, so it is a top too; what matters
+    # is that `top` survives and the context structure is not one
+    assert sorted(model.gds_top(p)) == ["leaf", "top"], model.gds_top(p)
+    # and with a real parent referencing the leaf, the top alone remains
+    q = _gds_with(["leaf", "top"], ["leaf"])
+    assert model.gds_top(q) == ["top"]
+    # a reference from an ordinary structure still counts
+    r = _gds_with(["a", "b"], ["a"])
+    assert model.gds_top(r) == ["b"]
+    # the cluster's copy of the rule says the same thing
+    assert "$$$CONTEXT_INFO$$$" in cluster._PY_RENDER
+    assert 'names[-1] != "$$$CONTEXT_INFO$$$"' in cluster._PY_RENDER
+
+
 def test_a_renderer_that_needs_the_top_cell_is_handed_it_and_refuses_two():
     p = _gds_with(["leaf", "top"], ["leaf"])
     d = os.path.dirname(p)
@@ -3633,6 +3656,77 @@ def test_the_hub_attributes_a_browser_by_what_it_says_not_its_port():
     assert hub.browser_state(a, live)["url"].endswith(":8731/")
     assert hub.browser_state(b, live)["url"].endswith(":8730/")
     assert hub.browser_state(os.path.join(os.sep, "x", "repo-c"), live) is None
+
+
+# ----------------------------------------------------------------- spectra
+def _response(n=200, kind="complex"):
+    """A synthetic photonic-filter-interchange response: a notch filter."""
+    import math
+    import spectrum
+    f = [190e12 + i * 30e9 for i in range(n)]
+    tr = []
+    for i, x in enumerate(f):
+        # a notch ~100 dB deep, well past spectrum.FLOOR_DB
+        a = 1.0 - 0.99999 * math.exp(-((i - n / 2) / 3.0) ** 2)
+        ph = -2 * math.pi * x * 5e-12
+        tr.append([a * math.cos(ph), a * math.sin(ph)] if kind == "complex"
+                  else 20 * math.log10(max(a, 1e-9)))
+    return spectrum, {
+        "schema": "photonic-filter-interchange/response/1", "verdict": "PASS",
+        "frequency_hz": f, "transfer": tr, "transfer_kind": kind,
+        "port": {"input": "in", "output": "out"},
+        "coverage": {"phase_sign_measured": -1.0},
+        "evaluations": [{"id": "nominal", "verdict": "PASS",
+                         "metrics": {"fsr_hz": {"pass": True, "value": 1e12}},
+                         "controls": [{"name": "c1", "value": 2.5, "unit": "V"}]}]}
+
+
+def test_a_spectral_response_is_drawn_and_its_verdicts_quoted_not_derived():
+    spectrum, d = _response()
+    assert spectrum.detect(d) == "complex"
+    r = spectrum.render(d)
+    assert r["svg"].startswith("<svg") and r["svg"].count("<polyline") == 2
+    assert r["n"] == 200 and r["span_nm"][0] < r["span_nm"][1]
+    assert r["verdict"] == "PASS" and r["evaluations"][0]["metrics"]["fsr_hz"] \
+        == {"value": 1e12, "pass": True}
+    # the notch is deeper than the floor: drawn at the floor, and SAID so
+    assert any("floor" in n for n in r["notes"]), r["notes"]
+    # the phase sign is quoted, never applied
+    assert any("phase_sign_measured" in n for n in r["notes"]), r["notes"]
+    # power-in-dB responses draw one panel
+    spectrum, p = _response(kind="power-db")
+    assert spectrum.detect(p) == "power-db"
+    assert spectrum.render(p)["svg"].count("<polyline") == 1
+    # anything else is not a spectrum
+    for bad in ({}, {"frequency_hz": [1, 2], "transfer": [1]},
+                {"frequency_hz": [1, 2], "transfer": [[1, 0], ["x", 0]],
+                 "transfer_kind": "complex"},
+                {"frequency_hz": [0, 2], "transfer": [1, 2]}, [1, 2]):
+        assert spectrum.detect(bad) is None, bad
+
+
+def test_the_file_route_attaches_the_spectrum_by_shape():
+    """Recognised by SHAPE, so a response filed under any name is drawn."""
+    import threading
+    from http.server import ThreadingHTTPServer
+    from urllib.request import urlopen
+    _spectrum, d = _response(n=64)
+    base = tempfile.mkdtemp(prefix="browse_spec_")
+    with open(os.path.join(base, "anything.json"), "w") as fh:
+        json.dump(d, fh)
+    keep = server.Handler.roots
+    server.Handler.roots = [rootsmod.Root("r", base)]
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        got = json.loads(urlopen("http://127.0.0.1:%d/api/file?root=r&path="
+                                 "anything.json" % srv.server_address[1]).read())
+        assert got["spectrum"]["kind"] == "complex", sorted(got)
+        assert "spectrumView(d.spectrum)" in server.page()
+    finally:
+        server.Handler.roots = keep
+        srv.shutdown()
+        srv.server_close()
 
 
 def main():

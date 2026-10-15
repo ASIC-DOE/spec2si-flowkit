@@ -61,6 +61,7 @@ try:
     import abstract_svg                                # noqa: E402
 except ImportError:                                    # pragma: no cover
     abstract_svg = None
+import spectrum                                        # noqa: E402
 
 
 def _find_reader():
@@ -1189,6 +1190,35 @@ async function mcView(art) {
   }
 }
 
+// A SPECTRAL RESPONSE: the transfer function drawn against wavelength, and
+// the evaluations exactly as the flow scored them -- the picture never
+// re-derives a verdict.
+function spectrumView(s) {
+  const tone = v => v === "PASS" ? "b-ok" : v === "FAIL" ? "b-bad" : "b-info";
+  const fmt = v => typeof v === "number"
+    ? (Math.abs(v) >= 1e5 || (v && Math.abs(v) < 1e-3) ? v.toExponential(4)
+                                                       : +v.toFixed(4)) : esc(v);
+  const evals = (s.evaluations || []).map(e =>
+    `<tr><td>${esc(e.id || "")}</td>
+       <td><span class="badge ${tone(e.verdict)}">${esc(e.verdict || "?")}</span></td>
+       <td>${Object.entries(e.metrics || {}).map(([k, m]) =>
+         `${esc(k)} = ${fmt(m.value)} ${m.pass === true ? "✓" : m.pass === false ? "✗" : ""}`
+       ).join("<br>")}</td>
+       <td class="muted">${(e.controls || []).map(c =>
+         `${esc(c.name)} ${fmt(c.value)} ${esc(c.unit || "")}`).join("<br>")}</td></tr>`
+  ).join("");
+  return `<div class="psess"><h4>
+      <span class="badge ${tone(s.verdict)}">${esc(s.verdict || "no verdict")}</span>
+      spectral response <span class="muted">· ${esc(s.schema || "")}
+      · ${s.n} points · ${s.span_nm[0]}–${s.span_nm[1]} nm
+      · peak ${s.peak_db} dB${s.port ? " · " + esc((s.port.input || "?") + " → "
+        + (s.port.output || "?")) : ""}${s.evaluation ? " · drawn: " + esc(s.evaluation) : ""}</span></h4>
+    <div style="color:inherit">${s.svg}</div>
+    ${(s.notes || []).map(n => `<div class="pev">${esc(n)}</div>`).join("")}
+    ${evals ? `<table><tr><th>evaluation</th><th>verdict</th><th>metrics</th>
+       <th>controls</th></tr>${evals}</table>` : ""}</div>`;
+}
+
 async function view(rel) {
   setHash({r: ROOT, p: REL, v: rel});
   // path-shaped, so relative refs inside an HTML artifact resolve
@@ -1250,6 +1280,8 @@ async function view(rel) {
     case "json": {
       const special = d.abstract ? trackMap(d.abstract)
         : d.abstract_error ? `<div class="warn">track map: ${esc(d.abstract_error)}</div>`
+        : d.spectrum ? spectrumView(d.spectrum)
+        : d.spectrum_error ? `<div class="warn">spectrum: ${esc(d.spectrum_error)}</div>`
         : d.design ? designView(d.design, rel)
         : d.design_lib ? libView(d.design_lib, rel) : "";
       body = special +
@@ -2406,6 +2438,16 @@ def page():
     return out
 
 
+def _spectrum_into(out, parsed):
+    """A spectral response (spectrum.detect) gets its picture. Best-effort,
+    by SHAPE not name: a viewer must never be what fails on a file."""
+    try:
+        if spectrum.detect(parsed):
+            out["spectrum"] = spectrum.render(parsed)
+    except Exception as exc:                           # noqa: BLE001
+        out["spectrum_error"] = str(exc)
+
+
 class Handler(BaseHTTPRequestHandler):
     roots = []
     settings = {}
@@ -2783,6 +2825,7 @@ class Handler(BaseHTTPRequestHandler):
                         "facts": abstract_svg.facts(parsed)}
                 except Exception as exc:               # noqa: BLE001
                     out["abstract_error"] = str(exc)
+            _spectrum_into(out, parsed)
             # THE DESIGN RECORD'S OWN FILE gets its own view: the views
             # table with the bound one marked, the BOM as links to the
             # sibling cells, and the one finding worth a badge -- a newer
@@ -2904,6 +2947,8 @@ class Handler(BaseHTTPRequestHandler):
                     out["parsed"] = json.loads(text)
                 except ValueError:
                     pass
+                else:
+                    _spectrum_into(out, out["parsed"])
         elif kind == "jsonl":
             rows = []
             for ln in text.splitlines():
@@ -3332,22 +3377,36 @@ class Handler(BaseHTTPRequestHandler):
         # shared miniforge -- so a render is an artifact, and the host that
         # produced it is provenance. Sites that do not share get per-host keys
         # by default (roots.py: fs defaults to host).
+        spec = tools.RENDERER_SPEC
+        src = spec.source() if spec.ship else None
+        if spec.ship and src is None:
+            return self._json({"ok": False, "state": "failed", "url": None,
+                               "error": "the declared renderer %s is not in "
+                                        "this checkout, so there is nothing "
+                                        "to ship" % spec.path})
+        # A SHIPPED renderer is part of the picture's identity: editing it
+        # must not hand back a picture the old code drew.
+        ident = ("|" + hashlib.sha256(src + json.dumps(list(spec.argv)).encode()
+                                      ).hexdigest() if src is not None else "")
         key = "r" + hashlib.sha256(
-            ("%s|%s|%s" % (root.fs, root.path, rel)).encode()).hexdigest()[:31]
+            ("%s|%s|%s%s" % (root.fs, root.path, rel, ident)).encode()
+        ).hexdigest()[:31]
         out = os.path.join(tools.cache_dir(), key + ".png")
         if os.path.exists(out) and os.path.getsize(out):
             return self._json({"ok": True, "state": "cached", "error": None,
                                "url": "/render/" + key + ".png"})
         t0 = time.time()
         try:
-            spec = tools.RENDERER_SPEC
             png, info = cluster.render(
                 root.host, root.path, rel,
                 # the declared renderer, as the repo-relative path it was
                 # declared under -- the cluster checkout is somewhere else
                 renderer_rel=(os.path.relpath(spec.path, rootsmod.REPO)
                               if spec.declared else None),
-                render_argv=spec.argv if spec.declared else None)
+                render_argv=spec.argv if spec.declared else None,
+                renderer_src=src,
+                renderer_name=os.path.basename(spec.path) if src else None,
+                python=spec.python)
         except cluster.RemoteError as exc:
             return self._json({"ok": False, "state": "failed", "url": None,
                                "error": str(exc)})

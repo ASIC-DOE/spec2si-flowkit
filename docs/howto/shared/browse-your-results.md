@@ -167,8 +167,10 @@ matplotlib on the cluster.
 
 ## Going deeper
 
-This page is the onboarding path. The architecture, the phase history and
-every trap paid for are in the visual interaction plan kept with the port
-that wrote the browser (spec2si-tsmc65); the survey that made it
-configuration-driven is beside it. For exact flags on any script named
-above, see the **Commands** chapter of the port's generated reference.
+This page is the onboarding path. The architecture, the phase history, every
+trap paid for and the ordered list of what is still open are in the
+visual-interaction plan, `docs/visual_interaction_plan.md` in
+**spec2si-flowkit** (moved there from spec2si-tsmc65 on 2026-10-15, beside the
+code; start at its section 11), with the survey that made the browser
+configuration-driven beside it. For exact flags on any script named above,
+see the **Commands** chapter of the port's generated reference.

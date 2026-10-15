@@ -338,6 +338,14 @@ if size > limit:
          error="%.1f MB is over the remote render limit" % (size / 1048576.0))
 
 renderer = os.environ.get("BROWSE_RENDERER", "")
+# A SHIPPED renderer: the served repo's own bytes, written beside the
+# picture and run from there -- no cluster checkout has to hold it.
+_src = os.environ.get("BROWSE_RENDERER_SRC", "")
+if _src:
+    _d = tempfile.mkdtemp(prefix="browse_renderer_")
+    renderer = os.path.join(_d, os.environ.get("BROWSE_RENDERER_NAME") or "render.py")
+    with open(renderer, "wb") as fh:
+        fh.write(base64.b64decode(_src))
 # The repo-relative places a renderer may be, DECLARED first (the served
 # repo's roots.json `renderer`, handed over as BROWSE_RENDERER_REL) and then
 # the two conventional ones -- the same list tools.py resolves locally.
@@ -378,16 +386,22 @@ if "{top}" in argv_t:
         pl = data[i + 4:i + rlen].rstrip(b"\x00")
         if rtyp == 0x06:
             names.append(pl.decode("ascii", "replace"))
-        elif rtyp == 0x12:
+        elif rtyp == 0x12 and (not names or names[-1] != "$$$CONTEXT_INFO$$$"):
+            # a reference from KLayout's context structure is not an instance
             refd.add(pl.decode("ascii", "replace"))
         i += rlen
-    tops = [c for c in names if c not in refd]
+    # model.META_STRUCTURES, repeated here because this runs on the cluster:
+    # KLayout's context structure is metadata, never a drawn top
+    tops = [c for c in names if c not in refd and c != "$$$CONTEXT_INFO$$$"]
     if len(tops) != 1:
         emit(kind="error", error="the renderer needs ONE top cell; the stream "
              "has %d unreferenced structure(s): %s" % (len(tops), ", ".join(tops[:6])))
     top = tops[0]
 
-py = os.environ.get("BROWSE_PYTHON") or ""
+py = os.path.expanduser(os.environ.get("BROWSE_PYTHON") or "")
+if py and not os.path.exists(py):
+    emit(kind="error", error="the declared renderer python %s is not on %s"
+         % (py, os.uname()[1]))
 if not py:
     # The system python3 is 3.6.8 with no matplotlib; miniforge is where the
     # scientific stack lives (plan section 2). Prefer it, fall back honestly.
@@ -412,6 +426,9 @@ with open(out, "rb") as fh:
     png = fh.read()
 os.unlink(out)
 os.rmdir(os.path.dirname(out))
+if _src:                                # the shipped copy leaves nothing behind
+    os.unlink(renderer)
+    os.rmdir(os.path.dirname(renderer))
 emit(kind="render", size=len(png), gds_size=size, python=py,
      renderer=renderer, b64=base64.b64encode(png).decode("ascii"))
 '''
@@ -552,7 +569,8 @@ def fetch(host, root_path, rel, budget=FETCH_BUDGET, timeout=DEFAULT_TIMEOUT):
 
 
 def render(host, root_path, rel, timeout=RENDER_TIMEOUT, renderer_rel=None,
-           render_argv=None):
+           render_argv=None, renderer_src=None, renderer_name=None,
+           python=None):
     """Render a remote GDS ON THE CLUSTER. -> (png_bytes, info)
 
     The plan's rule (section 5.3), and the reason the browser is useful for
@@ -569,6 +587,13 @@ def render(host, root_path, rel, timeout=RENDER_TIMEOUT, renderer_rel=None,
         binds["BROWSE_RENDERER_REL"] = renderer_rel.replace("\\", "/")
     if render_argv:
         binds["BROWSE_RENDER_ARGV"] = json.dumps(list(render_argv))
+    if renderer_src is not None:
+        # one base64 line: `_script` refuses a newline in a bound value
+        binds["BROWSE_RENDERER_SRC"] = base64.b64encode(
+            renderer_src).decode("ascii")
+        binds["BROWSE_RENDERER_NAME"] = renderer_name or "render.py"
+    if python:
+        binds["BROWSE_PYTHON"] = python
     data = _run(host, _script(_PY_RENDER, **binds), timeout)
     return (base64.b64decode(data.get("b64") or ""),
             {"python": data.get("python"), "renderer": data.get("renderer"),

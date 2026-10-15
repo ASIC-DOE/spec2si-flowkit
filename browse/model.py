@@ -192,6 +192,14 @@ _BGNSTR, _STRNAME, _BOUNDARY, _PATH, _SREF, _LAYER, _DATATYPE = (
 _SNAME = 0x12
 
 
+#: Structures a tool writes into a stream as METADATA. KLayout's holds a
+#: reference to every library and PCell cell it describes -- so it is both an
+#: extra unreferenced structure AND a source of references that are not
+#: instances. A top-cell search must skip it on both counts (measured on the
+#: photonics port's design store: two tops in one stream, none in another).
+META_STRUCTURES = ("$$$CONTEXT_INFO$$$",)
+
+
 def gds_summary(abspath, limit=GDS_SCAN_LIMIT):
     """What a GDS actually CONTAINS: cells, element counts, layers present.
 
@@ -223,7 +231,11 @@ def gds_summary(abspath, limit=GDS_SCAN_LIMIT):
         payload = data[i + 4:i + rlen]
         if rtyp == _STRNAME:
             cells.append(payload.rstrip(b"\x00").decode("ascii", "replace"))
-        elif rtyp == _SNAME:
+        elif rtyp == _SNAME and (not cells or cells[-1] not in META_STRUCTURES):
+            # a reference FROM a metadata structure is not an instance: the
+            # context structure references the very cells it describes,
+            # the top among them (measured: one photonic stream had no top
+            # left at all until these were ignored)
             referenced.add(payload.rstrip(b"\x00").decode("ascii", "replace"))
         elif rtyp == _BOUNDARY:
             counts["boundary"] += 1; cur_layer = None
@@ -240,7 +252,10 @@ def gds_summary(abspath, limit=GDS_SCAN_LIMIT):
         i += rlen
     return {"too_big": False, "size": size, "cells": cells,
             "n_cells": len(cells), "counts": counts,
-            "top": [c for c in cells if c not in referenced],
+            # KLayout writes its PCell/library context as an unreferenced
+            # structure; it is metadata, never a top a person drew
+            "top": [c for c in cells if c not in referenced
+                    and c not in META_STRUCTURES],
             "layers": sorted(layers.items(),
                              key=lambda kv: (-kv[1], kv[0]))}
 

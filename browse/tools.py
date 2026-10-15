@@ -77,12 +77,30 @@ def _first_present(repo, places):
 class Renderer(object):
     """One renderer: where it is, how it is called, whether it can crop."""
 
-    def __init__(self, path, argv=None, window=True, declared=False):
+    def __init__(self, path, argv=None, window=True, declared=False,
+                 ship=False, python=None):
         self.path = path
         self.argv = tuple(argv or DEFAULT_RENDER_ARGV)
         self.window = bool(window)
         self.declared = bool(declared)
         self.needs_top = "{top}" in self.argv
+        #: SHIP the renderer's source to the cluster with each remote render
+        #: instead of finding a cluster copy above the layout -- for a repo
+        #: whose layouts live where no checkout is (aim's design_store), and
+        #: so the picture is drawn by the bytes in THIS checkout, the same
+        #: invariant the remote waveform reader keeps.
+        self.ship = bool(ship)
+        #: The CLUSTER interpreter to run it with (`~/...` or absolute), for
+        #: a renderer whose imports live in a repo's own environment.
+        self.python = python
+
+    def source(self):
+        """The renderer's bytes, for shipping. None when it is not there."""
+        try:
+            with open(self.path, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
 
     def argv_for(self, gds, out, top=None):
         """The renderer's arguments (without the interpreter) for one call."""
@@ -92,7 +110,8 @@ class Renderer(object):
     def as_dict(self):
         return {"path": self.path, "argv": list(self.argv),
                 "window": self.window, "declared": self.declared,
-                "present": os.path.exists(self.path)}
+                "present": os.path.exists(self.path),
+                "ship": self.ship, "python": self.python}
 
 
 def _declared_path(repo, value, what):
@@ -135,8 +154,26 @@ def renderer_from(settings, repo=None):
         if a.startswith("{") and a not in RENDER_PLACEHOLDERS:
             raise ValueError("roots.json: unknown renderer placeholder %r "
                              "-- known: %s" % (a, ", ".join(RENDER_PLACEHOLDERS)))
+    py = decl.get("python")
+    if py is not None:
+        # A CLUSTER path, run as an argv element (never through a shell), and
+        # confined to the two spellings a cluster interpreter has: a home path
+        # or an absolute one. Nothing that could carry an option or a newline.
+        if (not isinstance(py, str) or not (py.startswith("~/") or py.startswith("/"))
+                or any(c in py for c in " \t\r\n;|&$`'\"<>")):
+            raise ValueError("roots.json: renderer.python must be a cluster "
+                             "interpreter path (~/... or /...), got %r" % (py,))
+    ship = decl.get("ship", False)
+    if not isinstance(ship, bool):
+        raise ValueError("roots.json: renderer.ship must be true or false")
+    known = {"path", "argv", "window", "python", "ship"}
+    unknown = sorted(k for k in decl if k not in known and not k.startswith("_"))
+    if unknown:
+        raise ValueError("roots.json: renderer has unknown key(s) %s -- known: %s"
+                         % (", ".join(unknown), ", ".join(sorted(known))))
     return Renderer(_declared_path(repo, decl.get("path"), "renderer.path"),
-                    argv, decl.get("window", True), declared=True)
+                    argv, decl.get("window", True), declared=True,
+                    ship=ship, python=py)
 
 
 def klayout_from(settings, repo=None):
