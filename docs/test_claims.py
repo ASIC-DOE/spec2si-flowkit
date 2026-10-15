@@ -777,6 +777,45 @@ def self_test():
                     print("SELF-TEST FAIL: with `.git` a file, an ignored "
                           "path was reported: %r" % (f_sep,))
                     return 1
+
+            # ⭐ THE CI SHAPE, END TO END: a real `git worktree add` (a fresh
+            # clone is the same as far as this goes) of xt011's layout. The
+            # NDA cards are ignored ONE BY ONE inside a TRACKED directory and
+            # are absent from the checkout; `work/` is ignored wholesale yet
+            # holds a force-added file. The ignored cards must be exempt and a
+            # card nobody ignores must still gate -- through `work/` too.
+            # xt011's stale copy reported 6 gating here and 0 in its main
+            # checkout, where `work/` blinded it instead.
+            main_ = os.path.join(sep, "main")
+            os.makedirs(os.path.join(main_, "tech", "cards"))
+            os.makedirs(os.path.join(main_, "work"))
+            for f, body in ((".gitignore", "work/\ntech/cards/rules_card.json"
+                             "\ntech/cards/em_card.json\n"),
+                            ("tech/cards/rules_card.template.json", "{}\n"),
+                            ("work/keep.sh", ""),
+                            ("cards.md", fm.format("guide") + "# cards\n\n"
+                             "Fill `tech/cards/rules_card.json` and "
+                             "`tech/cards/em_card.json` from the template; "
+                             "`tech/cards/gone_card.json` is not ignored.\n")):
+                with open(os.path.join(main_, f), "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            g = ["git", "-C", main_, "-c", "user.name=t", "-c",
+                 "user.email=t@t", "-c", "core.autocrlf=false"]
+            wt = os.path.join(sep, "wt")
+            if (subprocess.run(g + ["init"], **q).returncode == 0
+                    and subprocess.run(g + ["add", "-A"], **q).returncode == 0
+                    and subprocess.run(g + ["add", "-f", "work/keep.sh"],
+                                       **q).returncode == 0
+                    and subprocess.run(g + ["commit", "-m", "t"],
+                                       **q).returncode == 0
+                    and subprocess.run(g + ["worktree", "add", "--detach",
+                                            wt, "HEAD"], **q).returncode == 0):
+                _, f_wt = audit(wt)
+                if [x for _d, _g, _k, x in f_wt] != ["tech/cards/gone_card.json"]:
+                    print("SELF-TEST FAIL: in a clean worktree, ignored cards "
+                          "must be exempt and an unignored one must gate: %r"
+                          % (f_wt,))
+                    return 1
         except (OSError, ValueError):
             pass
 
@@ -789,7 +828,9 @@ def self_test():
               "same text as a `log` is reported but does not gate; an uncloned "
               "`spec2si-*` sibling is silent and a gone repo gates; an ignored "
               "`work/`, wholly or around a tracked file, does not blind the "
-              "ignore probe; and the probe runs where `.git` is a file")
+              "ignore probe; the probe runs where `.git` is a file; and in a "
+              "clean `git worktree`, cards ignored one by one are exempt while "
+              "an unignored one still gates")
         return 0
     finally:
         MNT, DRIVES = saved_mnt, saved_drives
