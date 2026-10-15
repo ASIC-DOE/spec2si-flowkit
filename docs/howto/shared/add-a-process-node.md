@@ -4,8 +4,8 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-25
-summary: Five steps to stand up a new process port: register it, vendor the shared core, declare a status for every policy rule, add a docs config, and run the two gates.
+updated: 2026-10-15
+summary: Five steps to stand up a new process port: register it, vendor the shared core (and declare its trees to the artifact browser), declare a status for every policy rule, add a docs config, and run the gates.
 -->
 
 # How to add a process node
@@ -31,12 +31,12 @@ register second.
 ## 2. Vendor the shared core
 
 `sync.py` lives in the flowkit and vendors *out* of it, so run it from
-there — there is no copy of it in a port. Python runs under WSL on the
-Windows box, so spell both paths the WSL way:
+there — there is no copy of it in a port. Spell the path with forward slashes
+(native Windows Python) or the WSL way (`/mnt/c/dev/...`):
 
 ```bash
-cd /mnt/c/dev/spec2si-flowkit
-python3 sync.py --to /mnt/c/dev/spec2si-<node>
+cd C:/dev/spec2si-flowkit
+python3 sync.py --to C:/dev/spec2si-<node>
 ```
 
 ⛔ **Not `C:\dev\spec2si-<node>` typed into bash.** Bash strips the
@@ -53,10 +53,13 @@ the DRC loop, the housekeeper, the agent-loop runlog, the artifact browser
 and the cluster transport it reads through.
 
 **The browser is onboarded by one file, not by code.** Write
-`browse/roots.json` naming the trees worth listing (and, if the port's
-renderer is not at the engine's conventional location or takes a different
-argument order, declare it there); `python browse/server.py` then serves
-the new port. `analog/specs/runlog_cells.txt` declares the cells the
+`browse/roots.json` naming the trees worth listing, with a `role` on the
+design record, the cluster's OA libraries, the content store and the work
+trees; declare the renderer if it is not at the engine's conventional
+location, takes a different argument order, or has to be shipped to the
+cluster (`"ship": true`, `"python": ...`); and declare the port's scratch
+and legacy OA libraries. `python browse/server.py` then serves the new port,
+and the hub (`python browse/hub.py`) lists it. `analog/specs/runlog_cells.txt` declares the cells the
 runlog should count when the tree does not name them, and
 `.claude/settings.json` installs the SessionEnd harvest — copy a sibling's.
 [browse-your-results](browse-your-results.md) has the details.
@@ -110,9 +113,9 @@ and leaves the genres the vocabulary allows to age advisory.
 ## What does *not* get shared
 
 The engine. That was decided by measuring the fork, and re-measuring it
-since: as of 2026-08-20 the 65 nm engine is 98 Python files and the 28 nm
-one 133, **25 filenames overlap and exactly two are byte-identical**, and
-`netlist_route.py` differs by 2,671 lines. The divergence is real work —
+since: on 2026-10-15 the 65 nm engine was 144 Python files and the 28 nm one
+251, **33 filenames overlap and 4 are byte-identical** (2026-08-20: 98, 133,
+25 and 2). The divergence is real work —
 Calibre versus Pegasus, PyCell versus SKILL, one substrate node versus
 per-tub isolation — and forcing it into one module produces a file of
 branches nobody can reason about on any node.

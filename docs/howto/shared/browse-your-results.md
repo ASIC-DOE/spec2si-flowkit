@@ -5,85 +5,84 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-10-15
-summary: Start the artifact browser on this checkout (or the hub over every checkout), view a layout or a waveform, cross-probe a schematic, read the design record (which captured view is this file, what does a cell.json bind), list the cluster's trees, and check what an agent did or which processes hold licences. What a port declares in roots.json (its trees and what kind each is, its renderer, its badge sources, its scratch and legacy OA libraries), and what the listing says when it has nothing to badge. The browser is vendored from spec2si-flowkit and identical in every port.
+summary: Start the artifact browser on this checkout, or the hub over every checkout; then look at a layout (drawn locally or on the cluster), a waveform, a spectral response, a Markdown doc or the design record, compare two layouts, follow the cluster's jobs and what an agent is doing, and share a deep link. What a port declares in browse/roots.json (its trees and their roles, its renderer — including one shipped to the cluster — its badge sources, its scratch and legacy OA libraries), and what to do when something looks wrong. Vendored from spec2si-flowkit; identical in every port.
 -->
 
 # How to browse your results
 
-**One command, in any checkout:**
+The **artifact browser** is a read-only web page over a repository's results:
+listings badged with what the flow concluded, layouts and waveforms drawn,
+the design record explained, the cluster's trees one click away. It is
+vendored from spec2si-flowkit, byte-identical in every port, and needs
+nothing installed beyond Python.
+
+## Quick start
+
+In any port checkout:
 
 ```bash
 python browse/server.py
 ```
 
-Opens `http://127.0.0.1:8730` on **this** checkout; the header and the
-tab title name the repo, so several open side by side stay told apart. Every tree the port's
-`browse/roots.json` names is a root; listings are badged from the files the
-flows write; a layout renders, a waveform plots, a `cell.json` opens as the
-design record. The browser is read-only, stdlib-only, and vendored from
-spec2si-flowkit byte-identically into every port — a fix lands once.
+It opens `http://127.0.0.1:8730` on **this** repository; the header and the
+tab title name the repo. Each repo's browser shows only that repo — open
+another repo's browser for its files.
 
-`python browse/launch.py <name>` serves a *sibling* checkout by prefix from
-wherever you are (`--list` says what can be served and what is up); several
-run side by side on consecutive ports. That is a convenience, not how a port
-is served: each checkout serves itself.
-
-## The hub: every repo on one page
+To see **every** repo at once, start the hub instead, from any checkout:
 
 ```bash
 python browse/hub.py
 ```
 
-Opens `http://127.0.0.1:8729`, from any checkout. One row per onboarded repo:
-what it is (its README line), its branch and how far it is ahead of or behind
-its upstream *as of its last fetch*, whether its browser is running and on
-which build, an **Open** link, and a **Start** button that runs that repo's
-own `browse/server.py`. Below it is the same Jobs / Processes / Agent strip
-the repo pages carry, once for the machine; its Agent tab lists sessions
-from every repo and from the parent directory, and an artifact link there
-opens the right repo's browser at that file.
+It opens `http://127.0.0.1:8729`: one row per repo with what it is, its
+branch and how far it is ahead of or behind its upstream (as of its last
+fetch), whether its browser is running, and **Open** / **Start** buttons.
+Start runs that repo's own `browse/server.py`. Below the table is the
+Jobs / Processes / Agent strip, once for the whole machine. The hub itself
+reads no repository files.
 
-The hub serves no files and cannot read any repo -- every browsing route
-404s there. Each repo's browser still confines itself to its own repo; the
-hub only links between them. A checkout that is behind is worth noticing
-first: the design-record badges compare the cluster's live store against
-whatever record the checkout last pulled.
+## I want to…
 
-## What it shows
-
-| Pane | What you get |
+| …do this | …do this in the browser |
 |---|---|
-| Results | every root the port declared, badged; click through to its files |
-| Interactions | the live job panel, agent activity, licence-holding processes (through the vendored `deployment/bnl/jobs/`). The job list is ONE read per machine: every browser and the hub share a cache file, a browser asking during another's read waits for it, and a read stays fresh for twice what it cost (one list measured 52 s for 1227 records). The agent tab also lists sessions started in the parent directory (`C:/dev`) whose transcript tail names this repo |
-| a Markdown file (`.md`) | rendered by the docs system's own `docs/mdrender.py`, in a sandboxed frame served with a no-script CSP; links to other `.md` files keep rendering, the source is one click away. A port without `docs/mdrender.py` shows the text |
-| the address bar | a deep link -- `#r=<root>&p=<dir>&v=<file>` -- so a reload lands where you were and a link opens a browser at a file; the hub and the agent panel use it |
-| a layout (`.gds`) | rendered PNG through the port's renderer, cropped by window where the renderer takes one; DRC markers overlaid from the `.lyrdb`; the KLayout handoff on Windows |
-| a schematic (`.svg`) | the engine's own drawn model; click a net to dim everything else, in the schematic and the paired layout |
-| a waveform (`.psf`/nutascii) | tran/dc/ac/noise/stb/op, decimated and re-plotted as you zoom — on a port whose engine has a transient reader; a port without one says so |
-| Monte Carlo | the min/max band across iterations, not sigma |
-| two GDS files | a geometric XOR — same shapes, different coordinates, or genuinely different |
-| the `design` root | the manifest tree, badged with `designdb --check --fast` (the gate CI runs); each library directory says *design record · N cells* |
-| a `cell.json` | the views table with the bound view marked, the provenance, the BOM as links to sibling cells, `bom_external` as text — and a warning when a newer generation of a bound view has not been adopted |
-| any local file | which captured view it is, by md5 against the manifests (*captured as `<lib>/<cell>` view `stream`, bound*), or *in no captured view*; a file that is a view's tracked origin with differing bytes is called out as drift |
-| the cluster's `analog/oa/` | each library directory says which kind it is: *OA · design library*, *OA · scratch library*, *OA · legacy shared library*, *backup*, or *OA · undeclared* — from the served repo's record, its `oa_dest.py` and its `libraries` declaration |
-| the cluster's `design_store/` | *store · N cells* for a design library, *not in this checkout's record* for bytes no manifest describes (pull first: the store is live, the record is whatever this checkout last pulled) |
-| a work tree | the listing says *work · scratch*, and so does a `work` directory (or a declared work root) seen from the listing above it |
+| look at a layout | click a `.gds`. A local stream renders here; a cluster stream renders **on the cluster** and only the picture comes back. A `.lyrdb` beside it overlays the DRC markers; on Windows, **KLayout** opens the real thing |
+| compare two layouts | open one `.gds` and pick the other under **XOR**: same shapes, same shapes at different coordinates, or genuinely different |
+| look at a simulation | click a `.psf` or nutascii file: tran/dc/ac/noise/stb/op, re-plotted as you zoom; Monte Carlo runs show the band across iterations. Needs the port's own transient reader; a port without one says so |
+| look at a filter response | click a response JSON (`frequency_hz` + `transfer`): transmission in dB and the phase against wavelength, with the scored evaluations beside it |
+| read a doc | click a `.md`: it renders as the docs site would, links to other docs keep working, and the source is one click away |
+| know what a file *is* | open it: the pane says which captured view it is in the design record (`<lib>/<cell>` view, bound or not), or that it is in none |
+| check a cell's design record | open its `cell.json`: the views with the bound one marked, provenance, the bill of materials as links, and a warning when a newer generation has not been adopted |
+| find the cluster's copy | open a cluster root (grouped under *BNL cluster*). OA libraries, the content store, the design record and work trees are each labelled for what they are — see the table below |
+| see what is running on the cluster | **Jobs** tab → Refresh (tick *watch* to keep it updating) |
+| find a stale licence-holding tool | **Processes** tab → Scan. Nothing is killed without a second, confirmed click |
+| see what an agent is doing | **Agent** tab: the live state, the turns, the files it touched. Sessions started in the parent directory (e.g. `C:/dev`) that worked in this repo are listed too |
+| send someone the exact view | copy the address bar: `#r=<root>&p=<folder>&v=<file>` opens the same view |
 
-Nothing here re-derives a verdict. It reads what the flow already wrote and
-draws it; live DRC/LVS/simulation still decide.
+## What the labels mean
 
-**Silence is not clean.** A listing whose rows carry no badge says *no badge
-source here* and names what it looks for. Until 2026-09-12 the badge sources
-were one port's flowrun files only, so two ports browsed unbadged for a month
-and every one of their listings looked like a directory of runs that all
-passed.
+Nothing here re-derives a verdict: badges are read out of the files the
+flow already wrote, and live DRC/LVS/simulation still decide. **A listing
+with no badges says so** (*no badge source here*) and names what it looks
+for — an unbadged listing is not a clean one.
 
-## What a port declares
+| Where | Label | Meaning |
+|---|---|---|
+| any listing | PASS / FAIL / DRC CLEAN / LVS … | read from `report.json`, `manifest.json`, `status.json`, any JSON with a `verdict`, `cell.json`, or a source the port declared |
+| the `design` tree | *design record · N cells* | a library in the manifest tree; the root also shows the `designdb --check --fast` result |
+| an OA tree | *OA · design library* | an OpenAccess library named for a design library |
+| | *OA · scratch library* | where a flow draws; nothing in it is published |
+| | *OA · legacy shared library* | predates one-library-per-design-library; declared by the port |
+| | *backup* | a set-aside copy (`.backup*`) |
+| | *OA · undeclared* | none of the above — the prompt to declare it |
+| the content store | *store · N cells* | the bytes the design record's md5s point at |
+| | *not in this checkout's record* | no manifest here describes it — **pull first**: the store is live, the record is whatever this checkout last pulled |
+| a work tree | *work · scratch* | regenerated scratch; nothing in it is published |
 
-`browse/roots.json` is the ONE file that differs per port, and it is never
-vendored. It may be a plain list of roots, or an object with a `roots` list
-and four optional keys — a declaration per repo instead of a list of places
-to guess:
+## What a port declares — `browse/roots.json`
+
+`browse/roots.json` is the one browser file that differs per port, and it is
+never vendored. A plain list of roots works; the object form adds four
+optional keys:
 
 ```json
 {"roots": [{"name": "results", "path": "analog/results"},
@@ -92,85 +91,63 @@ to guess:
            {"name": "oa libs", "kind": "remote", "host": "asic7",
             "fs": "bnl-home", "group": "BNL cluster",
             "path": "~/Documents/<area>/analog/oa", "role": "oa"}],
- "renderer": {"path": "<repo-relative path to the port's render_gds.py>",
-              "argv": ["{gds}", "{top}", "{out}"], "window": false},
- "klayout":  "<repo-relative path to the port's klayout_open.ps1>",
- "badges":   {"*-asic7.json": "verdict", "*.lvs.report": "verdict_text"},
+ "renderer":  {"path": "<repo-relative path to the renderer>",
+               "argv": ["{gds}", "{top}", "{out}"], "window": false},
+ "klayout":   "<repo-relative path to the port's klayout_open.ps1>",
+ "badges":    {"*-asic7.json": "verdict", "*.lvs.report": "verdict_text"},
  "libraries": {"scratch": ["<port>_work", "*_work"],
                "legacy":  ["<pre-split shared library>"]}}
 ```
 
-* **`roots`** — a name and a repo-relative path; a remote root names a host
-  and the filesystem it is on (`fs`), so two hosts that see the same home
-  share one cache. `roots.local.json` beside it, untracked, overrides or
-  extends by name, for a machine-specific path.
-* **`role`** on a root — what KIND of tree it is: `oa` (OpenAccess
-  libraries), `store` (the content store the manifests' md5s join to),
-  `design` (the manifest tree) or `work` (regenerated scratch). The same
-  directory name — `adc_v6` — is a library in each of the first three, and
-  the badge says which. A tree with no role is inferred from its directory
-  name (`oa`, `design_store`, `design`, `work`), so `analog/oa` reached by
-  walking down a whole cluster area is still marked. A misspelt role is
-  refused at startup.
-* **`renderer`** — a repo-relative path, or an object naming the argument
-  order. `{top}` is filled from the stream itself (the one structure nothing
-  instantiates; two is a refusal). `window: false` says it takes no crop.
-  Without a declaration the browser tries the two conventional locations —
-  a `render_gds.py` in the engine's layout directory, then in a port's flat
-  layout directory — and names what it looked for when neither exists. The
-  same declaration reaches the cluster: a remote render looks for the
-  declared path above the layout and calls it the declared way.
-* **`klayout`** — the launcher script, same rules.
-* **`badges`** — extra badge sources, file name or glob → reader
-  (`report`, `manifest`, `status`, `verdict`, `cell`, `verdict_text`). A
-  glob applies to file entries; a directory is badged from exact names.
-  An unknown reader or key is refused at startup rather than ignored.
-* **`libraries`** — the OA libraries the design record cannot name:
-  `scratch` (what a flow draws into; `oa_dest.py`'s `SCRATCH` counts too)
-  and `legacy` (shared libraries that predate one OA library per design
-  library and are still on the cluster). Names or globs. The record wins:
-  a design library is never called legacy. Anything in an `oa` tree that is
-  none of these, and not a `.backup*` copy, reads *OA · undeclared* — which
-  is the prompt to declare it.
+| Key | What it says |
+|---|---|
+| `roots` | a name and a repo-relative path; a cluster root adds `kind: "remote"`, the `host` to ask and the filesystem it is on (`fs`) — hosts on one `fs` share one cache. An untracked `roots.local.json` beside it overrides or extends by name |
+| `role` (on a root) | what kind of tree it is: `oa`, `store`, `design` or `work`. Without it the browser infers it from the directory name. A misspelt role stops the browser at startup |
+| `renderer` | how to draw a `.gds`: the path (repo-relative), the argument order (`{gds}`, `{out}`, and `{top}`, which the browser fills from the stream) and whether it takes a crop window. Two more keys for a renderer that must run on the cluster: `"ship": true` sends the renderer's own bytes with each cluster render (for layouts that live outside any cluster checkout — the picture is then drawn by the code in *this* checkout), and `"python": "~/…/bin/python"` names the cluster interpreter to run it with. Undeclared, the browser looks for `render_gds.py` at the two conventional engine paths |
+| `klayout` | the KLayout launcher script, same rules |
+| `badges` | extra badge sources: file name or glob → reader (`report`, `manifest`, `status`, `verdict`, `cell`, `verdict_text`). A glob matches files only |
+| `libraries` | OA libraries the design record cannot name: `scratch` (also read from `oa_dest.py`'s `SCRATCH`) and `legacy`. Names or globs; a design library is never called legacy |
 
-Built in, in precedence order: `report.json`, `manifest.json`,
-`status.json` (flowrun stamps), `result.json`, `pex.json`, `schematic.json`
-(any scored file with a `verdict`), and `cell.json` (the design record's
-bindings).
+An unknown key, role or reader is refused at startup rather than ignored —
+a declaration that silently declares nothing is the failure it exists to
+prevent.
 
 ## Before your first run
 
-Nothing to set up locally — `browse/` reads local files directly. A
-**remote** listing, render or waveform fetch goes through
-`browse/cluster.py` → `deployment/bnl/jobs/remote.py` (vendored beside it)
-and needs whatever cluster access the port's deployment notes already set
-up: the ssh alias for the host and, for a remote render, a python with
-matplotlib on the cluster.
+Nothing to set up for local trees. Cluster roots go through the vendored
+transport (`deployment/bnl/jobs/remote.py`) and need the cluster access the
+port's deployment notes already set up: the ssh alias for the host and, for a
+cluster render, a Python with matplotlib there (miniforge by default, or the
+interpreter the port's `renderer.python` names).
 
 ## When something looks wrong
 
-1. **The page says it's stale.** It compares its own build id against the
-   server's — reload.
-2. **A picture looks wrong but you can't tell why.** Don't eyeball it: a
-   `getBBox()` sweep over the drawn elements finds a bad frame in seconds,
-   and two views have shipped broken because "I can't screenshot this" was
-   mistaken for "I can't check this."
-3. **A viewer shows nothing at all.** Treat that as a parse bug, not an
-   empty file, until proven otherwise — a hardcoded axis name has produced a
-   confidently empty plot before.
-4. **"renderer not found".** The port has not declared one and keeps it at
-   neither conventional path — declare it in `roots.json`.
-5. **You edited `server.py`.** Edit it in the flowkit, not here: the copy is
-   hash-gated. The whole UI is JavaScript inside a Python string, so run
-   `python browse/test_browse.py` before trusting it — one escaped backslash
-   away from a `SyntaxWarning` that only fires at runtime.
+| You see | What it means / what to do |
+|---|---|
+| *the page is stale* | it compares its build id with the server's — reload |
+| the hub says *older build* | that repo's browser runs older code than this installation — restart it; if it persists, the port needs re-vendoring |
+| *renderer not found* | the port keeps its renderer at neither conventional path — declare it in `roots.json` |
+| *the renderer needs ONE top cell* | the stream has zero or several unreferenced structures (tool metadata such as KLayout's context structure is already ignored) — the stream itself needs fixing |
+| *the declared renderer python … is not on <host>* | the `renderer.python` path does not exist on that host |
+| *not in this checkout's record* on a store directory | pull this checkout before treating it as an orphan |
+| a cluster listing fails | the cluster did not answer — not the same as the directory being absent; check VPN/ssh from a shell |
+| a picture looks wrong | don't eyeball it: a `getBBox()` sweep over the drawn elements finds a bad frame in seconds |
+| a viewer shows nothing at all | treat it as a parse bug, not an empty file, until proven otherwise |
+
+**Changing the browser itself:** edit it in spec2si-flowkit, never in a port
+(the copies are hash-gated), and run its tests before trusting a change —
+the whole UI is JavaScript inside a Python string:
+
+```bash
+python browse/test_browse.py
+```
 
 ## Going deeper
 
-This page is the onboarding path. The architecture, the phase history, every
-trap paid for and the ordered list of what is still open are in the
-visual-interaction plan, `docs/visual_interaction_plan.md` in
-**spec2si-flowkit** (moved there from spec2si-tsmc65 on 2026-10-15, beside the
-code; start at its section 11), with the survey that made the browser
-configuration-driven beside it. For exact flags on any script named above,
-see the **Commands** chapter of the port's generated reference.
+This page is the onboarding path. The architecture, the history, every trap
+paid for and the ordered list of what is still open are in
+[the visual-interaction plan](https://github.com/mandalsoumyajit/spec2si-flowkit/blob/main/docs/visual_interaction_plan.md)
+in **spec2si-flowkit** — start at its section 11. (A URL rather than a
+path: this page is vendored into every port, and the plan exists only in
+the flowkit.) For exact flags on any script
+named above, see the **Commands** chapter of the port's generated reference.

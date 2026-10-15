@@ -4,7 +4,7 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-11
+updated: 2026-10-15
 summary: What Spec-to-Silicon actually is, independent of node: a staged pipeline with hard verdicts and content-hash caching, gated in two tiers, under a shared rule set that each port declares a status against. Points at the machine-readable policy rather than restating it.
 -->
 
@@ -104,6 +104,8 @@ observed to fail.
 
 | you want | page |
 |---|---|
+| to see how a session is driven, start to finish | [run-an-agent-session](run-an-agent-session.md) |
+| to look at results and verdicts | [browse-your-results](browse-your-results.md) |
 | to get the shared core into a repo | [vendoring](vendoring.md) |
 | to stand up a new node | [add-a-process-node](add-a-process-node.md) |
 | to actually run something | your port's own how-to index — the commands name that port's tools |

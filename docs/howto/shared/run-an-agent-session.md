@@ -4,8 +4,8 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-11
-summary: The session loop this flow is actually driven by — where a session starts, why the offline tier comes first and what the measured ratio is, what a session must leave behind so the next one can start, and which decisions are never the agent's.
+updated: 2026-10-15
+summary: The session loop this flow is actually driven by — where a session starts (and in which directory), why the offline tier comes first and what the measured ratio is, how cluster work runs as tracked jobs, how to watch a session from the browser, what a session must leave behind so the next one can start, and which decisions are never the agent's.
 -->
 
 # How to run an agent-executed design session
@@ -49,7 +49,14 @@ next. It is filed as a **`log`**, and that genre means exactly what it says:
 is where to START, never what to CITE. Your port's how-to index names the file.
 
 Read the repo's standing instructions too, where it has them — the rules that
-are true in every session and that nobody wants re-derived each time.
+are true in every session and that nobody wants re-derived each time
+(`CLAUDE.md`, `AGENTS.md`).
+
+⭐ **Start the session in the repo you are working on.** A session's
+transcript is filed under the directory it started in. The runlog harvest
+and the browser's Agent tab read a repo's own directory first; a session
+started in a parent directory (say `C:/dev`) is only found by searching that
+parent's transcripts for the repo's paths, and never by the runlog.
 
 ## 2. The offline tier first — and this is measured, not a preference
 
@@ -64,15 +71,32 @@ The offline tier is not a smoke test. Its job is to make the expensive tier
 run **the only remaining unknown**, and the agent-loop runlog exists to keep
 that claim honest rather than remembered. Measured on the 65 nm port:
 
-> **247 attempts across 85 sessions — 189 offline, 58 cluster.** Per cell the
-> ratio is the number that matters: `bandgap` 58 offline to 1 cluster,
-> `ota` 11 to 3, `vref` 24 to 8.
+> **247 attempts across 85 sessions — 189 offline, 58 cluster** (measured
+> 2026-09-11). Per cell the ratio is the number that matters: `bandgap` 58
+> offline to 1 cluster, `ota` 11 to 3, `vref` 24 to 8.
 
 ⭐ That ratio is the whole argument for the architecture. A session that goes
 to the cluster with a question the offline tier could have answered is the
 failure this design exists to prevent — the runlog's own docstring records the
 case it was written from: *three sessions of cluster round trips* that failed
 to close a marker which was then reproduced offline in milliseconds.
+
+### Cluster work runs as a tracked job
+
+Where a port has migrated a workload to the **tracked-job workflow**
+(`deployment/bnl/jobs/workflow.py`: `start`, `status`, `resume`, `collect`),
+use it rather than an ad-hoc ssh launch. Three rules carry over to every
+port:
+
+- **Keep the task key** `start` returns; a lost session resumes from it.
+- **Collect before you report.** A finished job is not a passing one:
+  `collect` scores it and writes a failure report when it is not a verified
+  pass.
+- **Never clear a reservation to retry** — resume or reconcile it.
+
+Which workloads are migrated, and the profile each uses, differ by port:
+the port's `AGENTS.md` and its tracked-jobs guide say so, and a workload not
+listed there is not covered.
 
 ## 3. Verdicts are hard, and you debug at the failing tool
 
@@ -107,7 +131,7 @@ session can start, and when what happened is recorded where it can be counted:
 | **a commit** | with what was measured, not only what changed |
 
 ⚠ **The runlog's cause field is the one that rots.** On the 65 nm port all 247
-attempts are currently `unclassified`, which means the loop's *shape* is
+attempts were `unclassified` when last counted, which means the loop's *shape* is
 counted and its *outcomes* are not. Classifying is a declaration a human or
 agent has to make; nothing can derive it.
 
@@ -132,7 +156,15 @@ gets a verdict you can act on.
 real thing the flow does, with the prompts that drive it. Start there if you
 want to see the shape rather than read about it.
 
-## 7. What is never the agent's call
+## 7. Watching a session
+
+The artifact browser's **Agent** tab shows a session while it runs: its
+state (working, waiting on you, idle), each turn's actions and the files it
+touched, and a warning when it is repeating itself. Click an artifact it
+produced to open it. The hub (`python browse/hub.py`) shows every repo's
+sessions at once. See [browse-your-results](browse-your-results.md).
+
+## 8. What is never the agent's call
 
 | decision | whose |
 |---|---|
@@ -151,4 +183,5 @@ session's work.
 |---|---|
 | the flow's shape and the shared rule set | [the-method](the-method.md) |
 | the commands for your node | your port's how-to index |
+| to look at what a session produced | [browse-your-results](browse-your-results.md) |
 | to get the shared core into a repo | [vendoring](vendoring.md) |

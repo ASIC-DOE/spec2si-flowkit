@@ -4,15 +4,17 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-25
-summary: Real copies of the node-agnostic core live in every port and are hash-checked. How to update one, what DRIFTED and MISSING mean, and the trap that `--to` overwrites a drifted file without asking.
+updated: 2026-10-15
+summary: Real copies of the node-agnostic core live in every port and are hash-checked. How to check for drift, how to update one port safely (copy the files you changed; `--to` only on a new port), what DRIFTED and MISSING mean, what to regenerate afterwards, and how to add a file to the shared set.
 -->
 
 # How to vendor the shared core
 
 The node-agnostic files — the flow policy, the genre vocabulary, the
-documentation model and its backends, the docs gates, the IR solver, the
-routing core — live in **spec2si-flowkit** and are copied into each port.
+documentation system and its gates, the artifact browser and its hub, the
+cluster transport, the IR solver, the routing core, the DRC loop, the
+housekeeper and these shared how-tos — live in **spec2si-flowkit** and are
+copied into each port. `sync.py`'s `FILES` list is the authoritative set.
 
 Vendoring was chosen over a submodule or a package install because it costs
 the consumers nothing: a clone stays a clone, the cluster rsync is unchanged,
@@ -20,23 +22,25 @@ and the cluster keeps running raw `python3` at the 3.6.8 / 3.8.10 floor its
 own tests enforce, with no pip. The price is that real copies exist — so the
 copies are hash-checked, the same shape as every other derived artifact here.
 
-## Update a port
+**Paths.** `sync.py` runs from the flowkit checkout. Use native Windows
+Python with forward-slash paths (`C:/dev/spec2si-<node>`) or WSL with
+`/mnt/c/dev/spec2si-<node>`. Never type an unquoted `C:\dev\...` into bash —
+it loses its backslashes.
+
+## 1. Ask whether anything drifted
+
+Every registered port:
 
 ```bash
-cd /mnt/c/dev/spec2si-flowkit
-python3 sync.py --to /mnt/c/dev/spec2si-<node>
+cd C:/dev/spec2si-flowkit
+python3 sync.py --check-all
 ```
 
-Python runs under WSL on the Windows box, so paths are spelled
-`/mnt/c/...`: an unquoted `C:\dev\...` loses its backslashes in bash.
-`--to` refuses a destination that is not an existing git checkout.
-
-## Ask whether anything drifted
+One port:
 
 ```bash
-cd /mnt/c/dev/spec2si-flowkit
-python3 sync.py --check /mnt/c/dev/spec2si-<node>   # one port
-python3 sync.py --check-all                         # every registered consumer
+cd C:/dev/spec2si-flowkit
+python3 sync.py --check C:/dev/spec2si-<node>
 ```
 
 Each file reports one of three states:
@@ -51,6 +55,38 @@ Each file reports one of three states:
 and let each port decide whether its status for the changed rule still holds.
 A local edit is exact the day it is made and diverges silently after, which is
 the whole reason the hash gate exists.
+
+## 2. Update an existing port: copy the files you changed
+
+The safe way to land a flowkit change in a port is to copy exactly the files
+you changed — one `cp` per file per port — and then run the port's own
+tests and the drift gate:
+
+```bash
+cp browse/server.py C:/dev/spec2si-<node>/browse/server.py
+```
+
+```bash
+cd C:/dev/spec2si-flowkit
+python3 sync.py --check-all
+```
+
+Check `git status` in the port first: a file that is already modified there
+is someone's work in flight, and is resolved before it is overwritten.
+
+**Afterwards, regenerate the port's docs.** A re-vendored module changes the
+port's generated API reference and index: run `python docs/gen.py build` in
+the port and commit the regenerated lines that came from your change with
+it (a port with a pre-commit docs gate refuses the commit otherwise).
+
+## 3. A new port: `--to`
+
+```bash
+cd C:/dev/spec2si-flowkit
+python3 sync.py --to C:/dev/spec2si-<node>
+```
+
+`--to` refuses a destination that is not an existing git checkout.
 
 ## ⛔⛔ The trap: `--to` overwrites, and it does not ask
 
