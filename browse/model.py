@@ -849,28 +849,203 @@ def scratch_library(repo):
     return m.group(1) if m else None
 
 
-def library_badges(name, repo):
-    """A DIRECTORY named for a design library, or for the scratch OA library,
-    says so -- on the cluster's `analog/oa/` listing that is the difference
-    between a published cellview and a work copy, and nothing else in the
-    listing states it. Exact name match only."""
+#: A repo's declared OA libraries the design record cannot name
+#: (roots.json `libraries`): {"scratch": [patterns], "legacy": [patterns]}.
+LIBRARY_DECL = {"scratch": (), "legacy": ()}
+LIBRARY_KINDS = ("scratch", "legacy")
+
+
+def configure_libraries(decl):
+    """Install a repo's `libraries` declaration. Raises on an unknown key or
+    a non-list value, for the reason `configure_badges` does: a declaration
+    that silently declares nothing is the failure it exists to remove."""
+    global LIBRARY_DECL
+    decl = decl or {}
+    if not isinstance(decl, dict):
+        raise ValueError("roots.json: libraries must be an object "
+                         "{\"scratch\": [...], \"legacy\": [...]}")
+    unknown = sorted(k for k in decl if k not in LIBRARY_KINDS
+                     and not k.startswith("_"))
+    if unknown:
+        raise ValueError("roots.json: libraries has unknown key(s) %s -- "
+                         "known: %s" % (", ".join(unknown),
+                                        ", ".join(LIBRARY_KINDS)))
+    out = {}
+    for k in LIBRARY_KINDS:
+        v = decl.get(k) or []
+        if not isinstance(v, list) or not all(
+                isinstance(x, str) and x.strip() and "/" not in x for x in v):
+            raise ValueError("roots.json: libraries.%s must be a list of "
+                             "library names or globs" % k)
+        out[k] = tuple(x.strip() for x in v)
+    LIBRARY_DECL = out
+    return out
+
+
+def _declared(kind, name):
+    import fnmatch
+    return any(fnmatch.fnmatchcase(name, pat)
+               for pat in LIBRARY_DECL.get(kind, ()))
+
+
+#: A copy someone set aside before overwriting: `.backup_20260912_symbols`,
+#: `.backup-pll_wref-pfd-20261011`, `backup`, `adc_v6.bak`. Seen in every
+#: port's `analog/oa/`, and indistinguishable from a library without this.
+_BACKUP_RE = re.compile(r"^\.?backup(?:$|[-_.])|\.(?:bak|orig)$", re.I)
+
+
+def library_kind(name, repo):
+    """What a directory NAMED `name` is, as a library, or None.
+
+    -> "design"  : a design library in the served repo's record
+       "scratch" : the scratch OA library (oa_dest.py SCRATCH, or declared)
+       "legacy"  : a declared pre-split shared library
+       "backup"  : a set-aside copy (`_BACKUP_RE`)
+    The record wins: a name that is a design library is never "legacy",
+    whatever a glob says.
+    """
     if not name or "/" in name:
+        return None
+    if name in design_index(repo)["libraries"]:
+        return "design"
+    if name == scratch_library(repo) or _declared("scratch", name):
+        return "scratch"
+    if _declared("legacy", name):
+        return "legacy"
+    if _BACKUP_RE.search(name):
+        return "backup"
+    return None
+
+
+def _cells(n):
+    return "%d cell%s" % (n, "" if n == 1 else "s")
+
+
+def _lb(text, tone, title=None):
+    b = _badge(text, tone)
+    if title:
+        b["title"] = title
+    return b
+
+
+def library_badges(name, repo, role=None):
+    """The badges a DIRECTORY named `name` gets in a listing of a tree with
+    `role` (roots.ROLES, or None when the tree's role is unknown).
+
+    The same name means three different things in three trees -- `adc_v6` is
+    a directory of manifests under `design/`, of captured bytes under
+    `design_store/` and an OpenAccess library under `analog/oa/` -- so the
+    text says which, and says it in the listing a person is actually in:
+
+      oa      OA · design library | OA · scratch library | OA · legacy shared
+              library | backup | OA · undeclared
+      store   store · N cells | backup | not in the design record
+      design  design record · N cells
+      None    design library · N cells | scratch OA library | legacy shared
+              OA library  -- the old name-only answer, for a tree nothing
+              declares (a whole cluster work area, say)
+
+    `work` trees get nothing per row: the LISTING says it is scratch.
+    """
+    if role == "work":
         return []
-    idx = design_index(repo)
-    lib = idx["libraries"].get(name)
-    if lib is not None:
-        return [_badge("design library · %d cell%s"
-                       % (len(lib["cells"]), "" if len(lib["cells"]) == 1 else "s"),
-                       "info")]
-    if name == scratch_library(repo):
-        return [_badge("scratch OA library", "warn")]
+    kind = library_kind(name, repo)
+    lib = design_index(repo)["libraries"].get(name) if kind == "design" else None
+    n = len(lib["cells"]) if lib else 0
+    rec = "%s in the design record (design/%s)" % (_cells(n), name)
+    if role == "oa":
+        if kind == "design":
+            return [_lb("OA · design library", "lib", rec)]
+        if kind == "scratch":
+            return [_lb("OA · scratch library", "warn",
+                        "a flow draws into this; nothing here is published")]
+        if kind == "legacy":
+            return [_lb("OA · legacy shared library", "legacy",
+                        "predates one OA library per design library; "
+                        "declared in roots.json")]
+        if kind == "backup":
+            return [_lb("backup", "info", "a set-aside copy, not a library")]
+        if name.startswith((".", "_")):
+            return []
+        return [_lb("OA · undeclared", "info",
+                    "not a design library, and not declared scratch or "
+                    "legacy in roots.json")]
+    if role == "store":
+        if kind == "design":
+            return [_lb("store · " + _cells(n), "lib", rec)]
+        if kind == "backup":
+            return [_lb("backup", "info", "a set-aside copy")]
+        if name.startswith((".", "_")):
+            return []
+        return [_lb("not in the design record", "warn",
+                    "bytes in the store that no manifest describes")]
+    if role == "design":
+        if kind == "design":
+            return [_lb("design record · " + _cells(n), "lib", rec)]
+        return []
+    if kind == "design":
+        return [_lb("design library · " + _cells(n), "info", rec)]
+    if kind == "scratch":
+        return [_lb("scratch OA library", "warn")]
+    if kind == "legacy":
+        return [_lb("legacy shared OA library", "legacy")]
     return []
 
 
-def annotate_libraries(entries, repo):
-    """Add the library-name badges to the directory entries, in place."""
+#: The conventional directory names that make a tree's role inferable when
+#: no root declares it -- `analog/oa` reached by walking down a whole cluster
+#: work area, which no `role` covers. A declared role always wins.
+_ROLE_BY_NAME = {"oa": "oa", "design_store": "store", "design": "design",
+                 "work": "work"}
+
+
+def listing_role(root_role, root_path, rel):
+    """The role of the directory being listed: root `root_role` at `rel`.
+
+    -> the declared role at the root's own top; "work" anywhere beneath a
+    work tree (declared, or a `work` directory on the way down); otherwise
+    what the listed directory's own name says, or None. Below the top of an
+    oa/store/design tree it is None -- those are cells, not libraries.
+    """
+    parts = [x for x in (rel or "").replace("\\", "/").split("/")
+             if x not in ("", ".")]
+    if root_role == "work" or "work" in parts:
+        return "work"
+    if not parts:
+        if root_role:
+            return root_role
+        base = str(root_path or "").replace("\\", "/").rstrip("/")
+        return _ROLE_BY_NAME.get(base.rsplit("/", 1)[-1])
+    if root_role in ("oa", "store", "design"):
+        return None
+    return _ROLE_BY_NAME.get(parts[-1])
+
+
+def annotate_libraries(entries, repo, role=None, work_dirs=(), base=None):
+    """Add the library and work-folder badges to directory entries, in place.
+
+    `role` is the listing's (`listing_role`). A directory that is itself a
+    work tree -- named `work`, or one of `work_dirs` (the declared work
+    roots' full paths, matched against `base`/name) -- says so in any
+    listing that is not already inside one, so `analog/work` is told apart
+    from `analog/oa` before anyone opens it.
+    """
     if not repo:
         return entries
+    norm = lambda p: os.path.normcase(os.path.normpath(p))      # noqa: E731
+    work_dirs = {norm(w) for w in work_dirs}
+    for e in entries:
+        if not e.get("is_dir"):
+            continue
+        got = library_badges(e["name"], repo, role)
+        is_work = e["name"] == "work" or bool(
+            base and work_dirs and norm(os.path.join(base, e["name"])) in work_dirs)
+        if role != "work" and is_work:
+            got = got + [_lb("work · scratch", "warn",
+                             "regenerated scratch: nothing here is published")]
+        if got:
+            e["badges"] = list(e.get("badges") or []) + got
+    return entries
     for e in entries:
         if e.get("is_dir"):
             got = library_badges(e["name"], repo)

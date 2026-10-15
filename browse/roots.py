@@ -43,14 +43,29 @@ def repo_root():
 REPO = repo_root()
 
 
+#: What KIND of tree a root is, when it is one of the trees a library lives
+#: in. Declared per root (`"role": "oa"`), because the same directory name --
+#: `adc_v6` -- is a manifest directory under `design/`, a byte tree under
+#: `design_store/` and an OpenAccess library under `analog/oa/`, and badging
+#: all three "design library" said nothing about which one you were looking
+#: at. `work` marks regenerated scratch: everything under it is disposable.
+ROLES = ("oa", "store", "design", "work")
+
+
 class Root(object):
     """One browsable tree."""
 
     def __init__(self, name, path, kind="local", host=None, fs=None,
-                 group=None):
+                 group=None, role=None):
+        if role is not None and role not in ROLES:
+            # refused rather than ignored: a misspelt role is a tree that
+            # silently goes unmarked, which is the failure it exists to fix
+            raise ValueError("root %r: role %r -- known: %s"
+                             % (name, role, ", ".join(ROLES)))
         self.name = name
         self.kind = kind
         self.host = host
+        self.role = role
         #: Heading this root is displayed under. Local roots and cluster roots
         #: are different KINDS of place -- one is on this disk and instant, the
         #: other is an ssh round trip away -- and a single flat list hid that
@@ -133,7 +148,8 @@ class Root(object):
     def as_dict(self):
         return {"name": self.name, "slug": self.slug, "kind": self.kind,
                 "host": self.host, "fs": self.fs, "path": self.path,
-                "group": self.group, "exists": self.exists}
+                "group": self.group, "exists": self.exists,
+                "role": self.role}
 
 
 def _defaults():
@@ -146,11 +162,13 @@ def _defaults():
     return [
         {"name": "flowruns", "path": os.path.join(REPO, "analog", "results",
                                                   "flowruns")},
-        {"name": "analog/work", "path": os.path.join(REPO, "analog", "work")},
+        {"name": "analog/work", "path": os.path.join(REPO, "analog", "work"),
+         "role": "work"},
         # The design record (docs/decisions/0003, and its adoptions in every
         # port): one `cell.json` per published cell. Since 2026-09-12 every
         # port has one, so it is a default rather than a per-repo courtesy.
-        {"name": "design", "path": os.path.join(REPO, "design")},
+        {"name": "design", "path": os.path.join(REPO, "design"),
+         "role": "design"},
         {"name": "repo", "path": REPO},
     ]
 
@@ -162,14 +180,21 @@ def _defaults():
 #:             | {"path": ..., "argv": ["{gds}", "{top}", "{out}"],
 #:                "window": false},
 #:    "klayout":  "analog/engine/layout/klayout_open.ps1",
-#:    "badges":   {"result.json": "verdict", "*.lvs.report": "verdict_text"}}
+#:    "badges":   {"result.json": "verdict", "*.lvs.report": "verdict_text"},
+#:    "libraries": {"scratch": ["xt011_work", "*_work"],
+#:                  "legacy":  ["aiml_analog", "aiml_control"]}}
+#:
+#: `libraries` names the OA libraries the design record cannot: the scratch
+#: ones a flow draws into, and the LEGACY shared ones that predate the
+#: one-library-per-design-library split (oa_dest.py's "pre-split libraries")
+#: and are still on the cluster beside it. Names or fnmatch globs.
 #:
 #: A DECLARATION per repo, the same move `designdb/oa_dest.py` made for OA
 #: libraries: `tools._RENDERER_AT` was a list of places to guess, and the
 #: third port (sky130) kept its renderer at a fourth path with a different
 #: argument order, so guessing had run out. The list form of roots.json is
 #: still accepted unchanged -- it is the object form with only `roots` set.
-SETTINGS_KEYS = ("renderer", "klayout", "badges")
+SETTINGS_KEYS = ("renderer", "klayout", "badges", "libraries")
 
 
 def _read(d, fn):
@@ -235,7 +260,8 @@ def load(config_dir=None):
         if not e.get("name") or not e.get("path"):
             continue
         out.append(Root(e["name"], e["path"], e.get("kind", "local"),
-                        e.get("host"), e.get("fs"), e.get("group")))
+                        e.get("host"), e.get("fs"), e.get("group"),
+                        e.get("role")))
     return out
 
 
@@ -293,6 +319,10 @@ def add(entry, config_dir=None):
             rec["fs"] = entry["fs"].strip()
     if entry.get("group"):
         rec["group"] = entry["group"].strip()
+    if entry.get("role"):
+        if entry["role"] not in ROLES:
+            raise ValueError("role must be one of %s" % ", ".join(ROLES))
+        rec["role"] = entry["role"]
 
     # Same rule `load` uses: same name REPLACES, so re-adding a path under an
     # existing name corrects it instead of producing two rows that differ only

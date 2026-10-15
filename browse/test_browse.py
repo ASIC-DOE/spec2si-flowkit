@@ -1860,6 +1860,48 @@ def test_the_page_can_tell_it_is_stale():
     assert "/api/health" in page and "reload" in page
 
 
+def test_the_page_names_the_repo_it_serves():
+    """Several browsers run side by side, one per repo, and every page used to
+    say only "artifact browser" -- the tab strip read "flowruns", "flowruns",
+    "docs", and the only clue was a path line under the listing.
+
+    The served repo is in the header and leads the tab title, by its short
+    tag (`spec2si-aim` -> `aim`; every port shares the prefix, so leading
+    with it would make every truncated tab identical). It reaches the page as
+    escaped HTML, never as script source, and /api/roots carries it too.
+    """
+    import re
+    keep = rootsmod.REPO
+    try:
+        rootsmod.REPO = os.path.join(tempfile.gettempdir(), "nowhere",
+                                     'spec2si-a&b"<i>')
+        ident = server.repo_identity()
+        assert ident["name"] == 'spec2si-a&b"<i>' and ident["tag"] == 'a&b"<i>'
+        assert ident["describe"] == ""          # no README: says nothing
+        page = server.page()
+        assert "__REPO" not in page and "__UI__" not in page
+        assert "<i>" not in page, "a directory name reached the page as markup"
+        assert re.search(r"<title>a&amp;b&quot;&lt;i&gt; — artifact browser</title>", page)
+        assert 'id="repo" data-tag="a&amp;b&quot;&lt;i&gt;"' in page
+        assert ">spec2si-a&amp;b&quot;&lt;i&gt;</b>" in page
+        # the JS title reads the tag from the DOM rather than a spliced string
+        assert '$("#repo").dataset.tag' in page
+    finally:
+        rootsmod.REPO = keep
+    assert [server.repo_tag(n) for n in
+            ("spec2si-aim", "spec2si-tsmc65", "FDFD_PE", "trailing-")] ==         ["aim", "tsmc65", "FDFD_PE", "trailing-"]
+    # and the API says the same thing the header does
+    srv = _live_server()
+    try:
+        from urllib.request import urlopen
+        got = json.loads(urlopen("http://127.0.0.1:%d/api/roots"
+                                 % srv.server_address[1]).read())
+        assert got["repo"] == server.repo_identity(), got.get("repo")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_live_pages_are_not_cacheable_but_renders_are():
     """A reload must never hand back yesterday's page.
 
@@ -3063,6 +3105,192 @@ def test_a_directory_named_for_a_library_says_which_kind_it_is():
         shutil.rmtree(repo, ignore_errors=True)
 
 
+def test_a_root_role_is_declared_checked_and_reported():
+    """`role` says what KIND of tree a root is (oa, store, design, work). A
+    misspelt one is refused at load -- a tree that silently goes unmarked is
+    the failure the declaration exists to fix."""
+    d = tempfile.mkdtemp(prefix="browse_roles_")
+    try:
+        with open(os.path.join(d, "roots.json"), "w") as fh:
+            json.dump({"roots": [
+                {"name": "oa", "path": d, "role": "oa"},
+                {"name": "plain", "path": d}],
+                "libraries": {"legacy": ["old_*"]}}, fh)
+        got = {r.name: r for r in rootsmod.load(d)}
+        assert got["oa"].role == "oa" and got["plain"].role is None
+        assert got["oa"].as_dict()["role"] == "oa"
+        assert rootsmod.settings(d)["libraries"] == {"legacy": ["old_*"]}
+        with open(os.path.join(d, "roots.json"), "w") as fh:
+            json.dump([{"name": "x", "path": d, "role": "oas"}], fh)
+        try:
+            rootsmod.load(d)
+        except ValueError as exc:
+            assert "oas" in str(exc) and "store" in str(exc), exc
+        else:
+            raise AssertionError("a misspelt role was accepted")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    # the unconfigured defaults know their own two
+    roles = {r["name"]: r.get("role") for r in rootsmod._defaults()}
+    assert roles["design"] == "design" and roles["analog/work"] == "work"
+
+
+def test_a_libraries_declaration_is_validated():
+    keep = model.LIBRARY_DECL
+    try:
+        for bad in ({"scrach": ["x"]}, {"legacy": "aiml_analog"},
+                    {"legacy": ["a/b"]}, ["x"]):
+            try:
+                model.configure_libraries(bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("accepted %r" % (bad,))
+        got = model.configure_libraries({"scratch": ["*_work"],
+                                         "legacy": ["aiml_analog"],
+                                         "_comment": "ignored"})
+        assert got == {"scratch": ("*_work",), "legacy": ("aiml_analog",)}
+    finally:
+        model.LIBRARY_DECL = keep
+
+
+def test_the_same_library_name_reads_differently_in_each_kind_of_tree():
+    """`adc` is a manifest directory under design/, a byte tree under
+    design_store/ and an OA library under analog/oa/ -- and the badge used
+    to be "design library" in all three. Each tree now says which it is,
+    and the OA tree tells design, scratch, legacy, backup and undeclared
+    libraries apart."""
+    repo, src, md5 = _design_repo()
+    keep = model.LIBRARY_DECL
+    try:
+        model.configure_libraries({"scratch": ["*_work"],
+                                   "legacy": ["aiml_*", "adc"]})
+
+        def say(name, role):
+            return [(b["text"], b["tone"])
+                    for b in model.library_badges(name, repo, role)]
+
+        assert say("adc", "oa") == [("OA · design library", "lib")]
+        assert say("adc", "store") == [("store · 2 cells", "lib")]
+        assert say("adc", "design") == [("design record · 2 cells", "lib")]
+        assert say("adc", None) == [("design library · 2 cells", "info")]
+        # the record wins over a legacy glob that also matches
+        assert model.library_kind("adc", repo) == "design"
+        # oa_dest.py's SCRATCH and a declared glob are both scratch
+        assert say("work_lib", "oa") == [("OA · scratch library", "warn")]
+        assert say("nvg_vco_work", "oa") == [("OA · scratch library", "warn")]
+        assert say("aiml_analog", "oa") == \
+            [("OA · legacy shared library", "legacy")]
+        assert say("aiml_analog", None) == \
+            [("legacy shared OA library", "legacy")]
+        for b in (".backup_20260912_symbols", ".backup-pll_wref-20261011"):
+            assert say(b, "oa") == [("backup", "info")], b
+        assert say("perf_logs", "oa") == [("OA · undeclared", "info")]
+        assert say(".hidden", "oa") == [] and say("_slices", "store") == []
+        assert say("orphan", "store") == \
+            [("not in the design record", "warn")]
+        assert say("orphan", "design") == [] and say("orphan", None) == []
+        # a work tree's rows carry nothing: the LISTING says scratch
+        assert say("adc", "work") == []
+        # and every badge with a reason carries it as a hover title
+        b = model.library_badges("adc", repo, "oa")[0]
+        assert "2 cells in the design record" in b["title"], b
+    finally:
+        model.LIBRARY_DECL = keep
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def test_a_listings_role_is_declared_at_the_top_and_inferred_below():
+    lr = model.listing_role
+    assert lr("oa", "/x/whatever", "") == "oa"           # declared wins
+    assert lr(None, "~/Documents/ms_pilot/analog/oa", "") == "oa"
+    assert lr(None, "~/Documents/sky130", "analog/oa") == "oa"
+    assert lr(None, "~/Documents/onr_t28", "design_store") == "store"
+    assert lr(None, "C:\\dev\\repo", "design") == "design"
+    # below the top of a library tree it is cells, not libraries
+    assert lr("oa", "/x", "adc_v6") is None
+    assert lr("store", "/x", "adc_v6/top") is None
+    # anything beneath a work tree is work, declared or by name
+    assert lr("work", "/x", "afe_v4/run1") == "work"
+    assert lr(None, "/repo", "analog/work/afe_v4") == "work"
+    assert lr(None, "/repo", "analog") is None
+
+
+def test_a_work_folder_is_marked_in_the_listing_that_contains_it():
+    repo, src, md5 = _design_repo()
+    try:
+        base = os.path.join(repo, "analog")
+        os.makedirs(os.path.join(repo, "scratch_area"))
+        rows = [{"name": "work", "is_dir": True, "badges": []},
+                {"name": "lib", "is_dir": True, "badges": []},
+                {"name": "work", "is_dir": False, "badges": []}]
+        model.annotate_libraries(rows, repo, None, base=base)
+        assert [b["text"] for b in rows[0]["badges"]] == ["work · scratch"]
+        assert rows[1]["badges"] == [] and rows[2]["badges"] == []
+        # a declared work root with any name, matched by its full path
+        rows = [{"name": "scratch_area", "is_dir": True, "badges": []}]
+        model.annotate_libraries(
+            rows, repo, None, base=repo,
+            work_dirs=[os.path.join(repo, "scratch_area")])
+        assert [b["text"] for b in rows[0]["badges"]] == ["work · scratch"]
+        # and not inside a work tree, where every row would say it
+        rows = [{"name": "work", "is_dir": True, "badges": []}]
+        model.annotate_libraries(rows, repo, "work", base=base)
+        assert rows[0]["badges"] == []
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def test_the_list_route_carries_the_role_and_the_role_badges():
+    """End to end: a root declared `oa` lists its libraries as OA libraries
+    and says `role: oa`; the same directory under a root with no role reads
+    the old way; the page knows how to draw both."""
+    import threading
+    from http.server import ThreadingHTTPServer
+    from urllib.request import urlopen
+    repo, src, md5 = _design_repo()
+    keep = rootsmod.REPO, server.Handler.roots, model.LIBRARY_DECL
+    oa = os.path.join(repo, "oa")
+    for n in ("adc", "work_lib", "aiml_analog", ".backup_x"):
+        os.makedirs(os.path.join(oa, n))
+    try:
+        rootsmod.REPO = repo
+        model.configure_libraries({"legacy": ["aiml_analog"]})
+        server.Handler.roots = [rootsmod.Root("oa libs", oa, role="oa"),
+                                rootsmod.Root("repo", repo)]
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = "http://127.0.0.1:%d" % srv.server_address[1]
+        try:
+            got = json.loads(urlopen(url + "/api/list?root=oa+libs&path=").read())
+            assert got["role"] == "oa"
+            b = {e["name"]: [x["text"] for x in e["badges"]]
+                 for e in got["entries"]}
+            assert b["adc"] == ["OA · design library"], b
+            assert b["work_lib"] == ["OA · scratch library"], b
+            assert b["aiml_analog"] == ["OA · legacy shared library"], b
+            assert b[".backup_x"] == ["backup"], b
+            # the same tree reached without a declaration infers it by name
+            got = json.loads(urlopen(url + "/api/list?root=repo&path=oa").read())
+            assert got["role"] == "oa", got["role"]
+            got = json.loads(urlopen(url + "/api/list?root=repo&path=analog").read())
+            assert got["role"] is None
+            b = {e["name"]: [x["text"] for x in e["badges"]]
+                 for e in got["entries"]}
+            assert b["work"] == ["work · scratch"], b
+            roots = json.loads(urlopen(url + "/api/roots").read())["roots"]
+            assert [r["role"] for r in roots] == ["oa", None]
+        finally:
+            srv.shutdown()
+            srv.server_close()
+    finally:
+        rootsmod.REPO, server.Handler.roots, model.LIBRARY_DECL = keep
+        shutil.rmtree(repo, ignore_errors=True)
+    page = server.page()
+    assert "ROLE_CHIP" in page and ".b-lib" in page and ".b-legacy" in page
+    assert 'b.title ? ` title=' in page
+
+
 def test_the_manifest_check_is_run_read_and_cached_by_signature():
     repo, src, md5 = _design_repo()
     try:
@@ -3108,8 +3336,11 @@ def test_the_file_route_reports_the_design_record_end_to_end():
             assert "renderer" in got and "badge_sources" in got and got["design"] is True
             got = json.loads(urlopen(url + "/api/list?root=design&path=").read())
             assert got.get("design_tree") is True, got
+            # the design/ tree is the RECORD, and says so (a root named
+            # `design` with no declared role infers it by name)
+            assert got["role"] == "design", got.get("role")
             assert [b["text"] for e in got["entries"] for b in e["badges"]] == \
-                ["design library · 2 cells"], got["entries"]
+                ["design record · 2 cells"], got["entries"]
             got = json.loads(urlopen(url + "/api/file?root=design&path=adc/top/cell.json").read())
             f = got["design"]
             assert f["cell"] == "top" and f["views"][0]["bound"] is True, f

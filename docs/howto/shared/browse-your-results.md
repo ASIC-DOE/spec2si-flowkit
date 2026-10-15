@@ -4,8 +4,8 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-12
-summary: Start the artifact browser on this checkout, view a layout or a waveform, cross-probe a schematic, read the design record (which captured view is this file, what does a cell.json bind), list the cluster's trees, and check what an agent did or which processes hold licences. What a port declares in roots.json (its trees, its renderer, its badge sources), and what the listing says when it has nothing to badge. The browser is vendored from spec2si-flowkit and identical in every port.
+updated: 2026-10-15
+summary: Start the artifact browser on this checkout, view a layout or a waveform, cross-probe a schematic, read the design record (which captured view is this file, what does a cell.json bind), list the cluster's trees, and check what an agent did or which processes hold licences. What a port declares in roots.json (its trees and what kind each is, its renderer, its badge sources, its scratch and legacy OA libraries), and what the listing says when it has nothing to badge. The browser is vendored from spec2si-flowkit and identical in every port.
 -->
 
 # How to browse your results
@@ -16,7 +16,8 @@ summary: Start the artifact browser on this checkout, view a layout or a wavefor
 python browse/server.py
 ```
 
-Opens `http://127.0.0.1:8730` on **this** checkout. Every tree the port's
+Opens `http://127.0.0.1:8730` on **this** checkout; the header and the
+tab title name the repo, so several open side by side stay told apart. Every tree the port's
 `browse/roots.json` names is a root; listings are badged from the files the
 flows write; a layout renders, a waveform plots, a `cell.json` opens as the
 design record. The browser is read-only, stdlib-only, and vendored from
@@ -38,10 +39,12 @@ is served: each checkout serves itself.
 | a waveform (`.psf`/nutascii) | tran/dc/ac/noise/stb/op, decimated and re-plotted as you zoom — on a port whose engine has a transient reader; a port without one says so |
 | Monte Carlo | the min/max band across iterations, not sigma |
 | two GDS files | a geometric XOR — same shapes, different coordinates, or genuinely different |
-| the `design` root | the manifest tree, badged with `designdb --check --fast` (the gate CI runs); each library directory says how many cells it holds |
+| the `design` root | the manifest tree, badged with `designdb --check --fast` (the gate CI runs); each library directory says *design record · N cells* |
 | a `cell.json` | the views table with the bound view marked, the provenance, the BOM as links to sibling cells, `bom_external` as text — and a warning when a newer generation of a bound view has not been adopted |
 | any local file | which captured view it is, by md5 against the manifests (*captured as `<lib>/<cell>` view `stream`, bound*), or *in no captured view*; a file that is a view's tracked origin with differing bytes is called out as drift |
-| the cluster's `analog/oa/` | each library directory badged *design library · N cells* or *scratch OA library*, from the served repo's record and its `oa_dest.py` |
+| the cluster's `analog/oa/` | each library directory says which kind it is: *OA · design library*, *OA · scratch library*, *OA · legacy shared library*, *backup*, or *OA · undeclared* — from the served repo's record, its `oa_dest.py` and its `libraries` declaration |
+| the cluster's `design_store/` | *store · N cells* for a design library, *not in the design record* for bytes no manifest describes |
+| a work tree | the listing says *work · scratch*, and so does a `work` directory (or a declared work root) seen from the listing above it |
 
 Nothing here re-derives a verdict. It reads what the flow already wrote and
 draws it; live DRC/LVS/simulation still decide.
@@ -56,25 +59,36 @@ passed.
 
 `browse/roots.json` is the ONE file that differs per port, and it is never
 vendored. It may be a plain list of roots, or an object with a `roots` list
-and three optional keys — a declaration per repo instead of a list of places
+and four optional keys — a declaration per repo instead of a list of places
 to guess:
 
 ```json
 {"roots": [{"name": "results", "path": "analog/results"},
-           {"name": "design",  "path": "design"},
-           {"name": "cluster", "kind": "remote", "host": "asic7",
+           {"name": "design",  "path": "design", "role": "design"},
+           {"name": "work",    "path": "analog/work", "role": "work"},
+           {"name": "oa libs", "kind": "remote", "host": "asic7",
             "fs": "bnl-home", "group": "BNL cluster",
-            "path": "~/Documents/<area>"}],
+            "path": "~/Documents/<area>/analog/oa", "role": "oa"}],
  "renderer": {"path": "<repo-relative path to the port's render_gds.py>",
               "argv": ["{gds}", "{top}", "{out}"], "window": false},
  "klayout":  "<repo-relative path to the port's klayout_open.ps1>",
- "badges":   {"*-asic7.json": "verdict", "*.lvs.report": "verdict_text"}}
+ "badges":   {"*-asic7.json": "verdict", "*.lvs.report": "verdict_text"},
+ "libraries": {"scratch": ["<port>_work", "*_work"],
+               "legacy":  ["<pre-split shared library>"]}}
 ```
 
 * **`roots`** — a name and a repo-relative path; a remote root names a host
   and the filesystem it is on (`fs`), so two hosts that see the same home
   share one cache. `roots.local.json` beside it, untracked, overrides or
   extends by name, for a machine-specific path.
+* **`role`** on a root — what KIND of tree it is: `oa` (OpenAccess
+  libraries), `store` (the content store the manifests' md5s join to),
+  `design` (the manifest tree) or `work` (regenerated scratch). The same
+  directory name — `adc_v6` — is a library in each of the first three, and
+  the badge says which. A tree with no role is inferred from its directory
+  name (`oa`, `design_store`, `design`, `work`), so `analog/oa` reached by
+  walking down a whole cluster area is still marked. A misspelt role is
+  refused at startup.
 * **`renderer`** — a repo-relative path, or an object naming the argument
   order. `{top}` is filled from the stream itself (the one structure nothing
   instantiates; two is a refusal). `window: false` says it takes no crop.
@@ -88,6 +102,13 @@ to guess:
   (`report`, `manifest`, `status`, `verdict`, `cell`, `verdict_text`). A
   glob applies to file entries; a directory is badged from exact names.
   An unknown reader or key is refused at startup rather than ignored.
+* **`libraries`** — the OA libraries the design record cannot name:
+  `scratch` (what a flow draws into; `oa_dest.py`'s `SCRATCH` counts too)
+  and `legacy` (shared libraries that predate one OA library per design
+  library and are still on the cluster). Names or globs. The record wins:
+  a design library is never called legacy. Anything in an `oa` tree that is
+  none of these, and not a `.backup*` copy, reads *OA · undeclared* — which
+  is the prompt to declare it.
 
 Built in, in precedence order: `report.json`, `manifest.json`,
 `status.json` (flowrun stamps), `result.json`, `pex.json`, `schematic.json`

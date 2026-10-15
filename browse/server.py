@@ -172,7 +172,7 @@ except ImportError:                                    # pragma: no cover
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>artifact browser</title>
+<title>__REPO_TAG__ — artifact browser</title>
 <style>
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
@@ -242,6 +242,10 @@ body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;
 header { padding:.4rem .7rem; border-bottom:1px solid #8884;
          display:flex; gap:.8rem; align-items:center; }
 header b { font-size:14px; }
+header #repo, header #hint { white-space:nowrap; flex-shrink:0; }
+header #repodesc, header #status { min-width:0; overflow:hidden;
+                   text-overflow:ellipsis; white-space:nowrap; }
+header #repodesc { max-width:40vw; }
 #panes { flex:1; display:grid; grid-template-columns:210px 320px 1fr;
          min-height:0; }
 #panes > div { overflow:auto; min-height:0; }
@@ -294,9 +298,13 @@ td,th { border:1px solid #8884; padding:.15rem .4rem; text-align:left;
 .b-warn { background:#b8860b33; color:#92600b; }
 .b-run  { background:#3b82f633; color:#1d4ed8; }
 .b-info { background:#8882; }
+.b-lib  { background:#0d948833; color:#0f766e; }
+.b-legacy { background:#a855f733; color:#7e22ce; }
+.rolechip { font-size:10px; margin-left:.35rem; opacity:.75; }
 @media (prefers-color-scheme: dark) {
   .b-ok { color:#4ade80; } .b-bad { color:#f87171; }
   .b-warn { color:#fbbf24; } .b-run { color:#93c5fd; }
+  .b-lib { color:#5eead4; } .b-legacy { color:#d8b4fe; }
 }
 .warn { background:#b8860b22; border-left:4px solid #b8860b; padding:.4rem .6rem;
         margin:.4rem 0; }
@@ -304,8 +312,9 @@ td,th { border:1px solid #8884; padding:.15rem .4rem; text-align:left;
 .xok  { background:#16a34a22; border-left:4px solid #16a34a; padding:.4rem .6rem; }
 .muted { color:#8a8a8a; }
 </style></head><body>
-<header><b>artifact browser</b>
-  <span class="muted" id="hint">read-only &middot; localhost &middot;
+<header><b id="repo" data-tag="__REPO_TAG__" title="__REPO_PATH__">__REPO_NAME__</b>
+  <span class="muted" id="repodesc">__REPO_DESC__</span>
+  <span class="muted" id="hint">artifact browser &middot; read-only &middot; localhost &middot;
     <span title="build on screen -- if this differs from the one the server printed, reload">ui __UI__</span></span>
   <span style="flex:1"></span>
   <span class="muted" id="status"></span>
@@ -379,7 +388,9 @@ async function j(u) {
   if (!r.ok) throw new Error((await r.text()) || r.statusText);
   return r.json();
 }
-function status(t) { $("#status").textContent = t || ""; }
+// the header truncates it when the repo name needs the room; the whole
+// line stays one hover away
+function status(t) { const e = $("#status"); e.textContent = e.title = t || ""; }
 
 async function loadRoots(keepSelection) {
   const d = await j("/api/roots");
@@ -398,6 +409,14 @@ async function loadRoots(keepSelection) {
 // Grouped, because a local folder and a cluster tree are different KINDS of
 // place -- one is on this disk and instant, the other is an ssh round trip
 // away -- and a flat list hid that behind identical-looking rows.
+// role -> [label, badge class, what it means]; roots.ROLES on the server
+const ROLE_CHIP = {
+  oa:     ["OA libraries", "b-lib", "OpenAccess libraries: design, scratch, legacy shared"],
+  store:  ["content store", "b-lib", "the bytes the design record's md5s join to"],
+  design: ["design record", "b-lib", "manifests: one cell.json per captured cell"],
+  work:   ["work · scratch", "b-warn", "regenerated scratch: nothing here is published"],
+};
+
 function paintRoots() {
   const groups = [];
   for (const r of ROOTS) {
@@ -420,6 +439,7 @@ function paintRoots() {
            data-root="${esc(r.name)}"
            title="${esc(r.kind === "remote" ? r.host + ":" + r.path : r.path)}"
            >${esc(r.name)}` +
+        (ROLE_CHIP[r.role] ? `<span class="rolechip muted">${esc(ROLE_CHIP[r.role][0])}</span>` : "") +
         (r.exists === false ? ' <span class="meta">missing</span>' : "") +
         `</div>`).join("") +
       `<div class="addform" id="add-${esc(slugify(g.name))}" hidden>
@@ -516,7 +536,12 @@ async function open(root, rel) {
   const full = d.root_kind === "remote"
     ? `${esc(d.root_host)}:${esc(d.abspath || d.root_path)}`
     : esc(d.abspath || d.root_path);
-  $("#crumb").innerHTML = `<div class="crumbline">${crumb}${chip}<span id="dcheck"></span></div>` +
+  // WHAT KIND OF TREE, said once for the listing: the rows below are OA
+  // libraries, or store directories, or manifests, or scratch -- and the same
+  // directory name is each of those in a different tree.
+  const rc = ROLE_CHIP[d.role];
+  const role = rc ? `<span class="badge ${rc[1]}" title="${esc(rc[2])}">${esc(rc[0])}</span>` : "";
+  $("#crumb").innerHTML = `<div class="crumbline">${crumb}${chip}${role}<span id="dcheck"></span></div>` +
     `<div class="fullpath" title="the folder this listing is showing">${full}</div>`;
   $("#crumb").onclick = e => {
     const a = e.target.closest("[data-go]");
@@ -528,9 +553,11 @@ async function open(root, rel) {
   // took a second would otherwise be a second before any row appeared.
   if (d.design_tree) designCheckBadge();
   // The tab title too: with several browser windows open on several roots,
-  // the taskbar was eight identical "artifact browser" entries.
-  document.title = (parts.length ? parts[parts.length - 1] : root)
-                 + " — artifact browser";
+  // the taskbar was eight identical "artifact browser" entries -- and with
+  // several REPOS open, eight entries that all said "flowruns". The repo's
+  // short tag leads, because a tab strip truncates from the right.
+  document.title = $("#repo").dataset.tag + " · "
+                 + (parts.length ? parts[parts.length - 1] : root);
 
   ENTRIES = d.entries;
   REMOTE_INFO = d.host ? ` · ${d.host}${d.cached ? " (cached)" : ""}` : "";
@@ -623,7 +650,7 @@ function paint() {
     `<div class="item ${e.is_dir ? "dir" : ""}" data-rel="${esc(e.rel)}"
        data-dir="${e.is_dir ? 1 : 0}"><span class="meta">${kb(e.size)}</span>${esc(e.name)}` +
     (e.badges || []).map(b =>
-      `<span class="badge b-${esc(b.tone)}">${esc(b.text)}</span>`).join("") +
+      `<span class="badge b-${esc(b.tone)}"${b.title ? ` title="${esc(b.title)}"` : ""}>${esc(b.text)}</span>`).join("") +
     `</div>`).join("") || '<div class="muted" style="padding:.6rem">empty</div>';
   // NAME THE ORDER. Half the original complaint was that it was invisible:
   // "it seems to be last-modified, I think, it is not clear".
@@ -2174,6 +2201,57 @@ loadRoots();
 UI_VERSION = hashlib.sha256(PAGE.encode("utf-8")).hexdigest()[:7]
 
 
+def repo_tag(name):
+    """The short name a tab leads with: `spec2si-aim` -> `aim`.
+
+    The last `-`-separated component, the same split `launch._matches` uses
+    for the short token typed on the command line -- so the tab says what was
+    typed to start it, and no prefix (`spec2si-`) is hard-coded here. Every
+    port shares that prefix, so leading a truncated tab with it would make
+    every tab read identically, which is the problem this exists to fix. A
+    name with no `-` is its own tag.
+    """
+    return name.rsplit("-", 1)[-1] or name
+
+
+def repo_identity():
+    """{name, tag, path, describe} for the SERVED repo -- what the page says
+    it is showing, so two tabs on two repos can never be mistaken for one.
+
+    The description is the README line `launch.py --list` prints, read by the
+    same function, so the list and the page cannot disagree about what a
+    repo is. Imported here rather than at module level: `launch` imports this
+    module, and it is only a reader of the README.
+    """
+    repo = rootsmod.REPO
+    name = os.path.basename(os.path.normpath(repo)) or repo
+    try:
+        import launch                                   # noqa: E402
+        desc = launch.describe(repo)
+    except Exception:                                   # pragma: no cover
+        desc = ""
+    return {"name": name, "tag": repo_tag(name), "path": repo,
+            "describe": desc}
+
+
+def page():
+    """PAGE with the build id and the served repo substituted in.
+
+    The repo goes in as escaped HTML text and attributes only -- never into
+    script source; the page reads it back from the DOM. A directory name is
+    not something to splice into JavaScript.
+    """
+    import html as _html
+    ident = repo_identity()
+    out = PAGE.replace("__UI__", UI_VERSION)
+    for key, val in (("__REPO_NAME__", ident["name"]),
+                     ("__REPO_TAG__", ident["tag"]),
+                     ("__REPO_PATH__", ident["path"]),
+                     ("__REPO_DESC__", ident["describe"])):
+        out = out.replace(key, _html.escape(val, quote=True))
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     roots = []
     settings = {}
@@ -2227,8 +2305,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path in ("/", "/index.html"):
-                return self._send(200, PAGE.replace("__UI__", UI_VERSION),
-                                  "text/html; charset=utf-8")
+                return self._send(200, page(), "text/html; charset=utf-8")
             if u.path == "/api/health":
                 return self._json({"app": "artifact-browser",
                                    "ui": UI_VERSION, "pid": os.getpid(),
@@ -2240,7 +2317,8 @@ class Handler(BaseHTTPRequestHandler):
                     # renderer a click will run and which files it badges
                     "renderer": tools.RENDERER_SPEC.as_dict(),
                     "badge_sources": [p for p, _r in model.BADGE_SOURCES],
-                    "design": bool(model.design_signature(rootsmod.REPO))})
+                    "design": bool(model.design_signature(rootsmod.REPO)),
+                    "repo": repo_identity()})
             if u.path == "/api/list":
                 return self._api_list(q)
             if u.path == "/api/file":
@@ -2382,9 +2460,15 @@ class Handler(BaseHTTPRequestHandler):
         model.annotate(entries, abspath)
         # A directory named for a design library, or for the scratch OA
         # library, is told apart from any other directory -- the question a
-        # listing of `analog/oa/` exists to answer.
-        model.annotate_libraries(entries, rootsmod.REPO)
-        out = {"entries": entries,
+        # listing of `analog/oa/` exists to answer -- and HOW depends on which
+        # tree this is (`role`): the same name is an OA library, a store
+        # directory or a manifest directory depending on where you stand.
+        role = model.listing_role(_root.role, _root.path, rel)
+        model.annotate_libraries(
+            entries, rootsmod.REPO, role, base=abspath,
+            work_dirs=[r.path for r in self.roots
+                       if r.role == "work" and r.kind == "local"])
+        out = {"entries": entries, "role": role,
                # HOW MANY ROWS ACTUALLY GOT BADGED. Badging is capped, and
                # the cap applies in the order the SERVER produced -- newest
                # first. That was invisible while the pane showed the same
@@ -2460,12 +2544,19 @@ class Handler(BaseHTTPRequestHandler):
         # scratch one, and the served repo's manifests are what say which is
         # which -- so the name badges come from the LOCAL record, applied to
         # the REMOTE listing.
-        model.annotate_libraries(out, rootsmod.REPO)
+        role = model.listing_role(root.role, root.path, rel)
+        model.annotate_libraries(
+            out, rootsmod.REPO, role,
+            base=(root.path.rstrip("/") + "/" + rel) if rel else root.path,
+            # a declared work root on the SAME filesystem, by its path as
+            # declared -- the only spelling both sides share
+            work_dirs=[r.path for r in self.roots if r.role == "work"
+                       and r.kind == "remote" and r.fs == root.fs])
         # The cluster path is composed rather than round-tripped: the root's
         # own path plus the relative part is exactly what the user typed or
         # configured, and it stays readable ("~/Documents/ms_pilot/...")
         # instead of expanding to a home directory they never wrote.
-        return self._json({"entries": out, "cached": cached,
+        return self._json({"entries": out, "cached": cached, "role": role,
                            "host": root.host,
                            "badged": min(len(out), cluster.BADGE_MAX_ENTRIES),
                            "badge_sources": model.badge_sources_present(out),
@@ -3492,6 +3583,7 @@ def serve(port=None, open_browser=True, config_dir=None):
     Handler.settings = rootsmod.settings(config_dir)
     tools.configure(Handler.settings)
     model.configure_badges(Handler.settings.get("badges"))
+    model.configure_libraries(Handler.settings.get("libraries"))
     # THREADING, not the plain HTTPServer: a GDS render is a subprocess that
     # runs for tens of seconds, and on a single-threaded server that request
     # blocks every other one -- the whole browser freezes, including the
