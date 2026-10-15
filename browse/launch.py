@@ -284,6 +284,7 @@ def _print_list():
         print("   -- no browse/roots.json (servable, default roots only):")
         print("      %s" % ", ".join(os.path.basename(c) for c in rest))
     print("\nstart one with:  python browse/launch.py <name>")
+    print("or see them all:  python browse/hub.py   (http://127.0.0.1:8729)")
     print("running now:")
     # Ask each repo where ITS server is: the state file is keyed by served repo
     # (server.state_path), so this is the only way to see more than one.

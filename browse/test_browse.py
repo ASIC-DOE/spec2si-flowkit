@@ -1802,6 +1802,17 @@ def test_the_agent_route_keeps_the_session_identity():
                      "mtime": 90, "title": None, "live": False}]
 
         @staticmethod
+        def sessions_touching(repo):
+            # a session started in the PARENT directory that edited this repo,
+            # plus one that is ALSO the repo's own (must not be listed twice)
+            return [{"id": "ccc", "path": "/tmp/ccc.jsonl", "size": 30,
+                     "mtime": 95, "title": "from the parent", "live": False,
+                     "via": "/parent", "hits": 7},
+                    {"id": "aaa", "path": "/tmp/aaa.jsonl", "size": 10,
+                     "mtime": 100, "title": "a live one", "live": True,
+                     "via": "/parent", "hits": 1}]
+
+        @staticmethod
         def summarize(path):
             return {"now": {"state": "idle"}, "turns": [], "timeline": [],
                     "thrash": [], "fleet": {"n": 0}, "n_events": 0}
@@ -1822,7 +1833,13 @@ def test_the_agent_route_keeps_the_session_identity():
         assert got["session"] == "aaa", got
         assert got["sessions"][0]["title"] == "a live one", got["sessions"]
         assert got["sessions"][0]["live"] is True
-        assert got["sessions"][1]["live"] is False
+        # newest first, the parent's session between the repo's two, and the
+        # one both lists name appears once -- as the repo's own
+        assert [x["id"] for x in got["sessions"]] == ["aaa", "ccc", "bbb"],             got["sessions"]
+        assert got["sessions"][0]["via"] is None
+        assert got["sessions"][1]["via"] == "/parent", got["sessions"][1]
+        assert got["sessions"][1]["hits"] == 7
+        assert got["sessions"][2]["live"] is False
     finally:
         server.agentview = keep
         srv.shutdown()
@@ -2406,7 +2423,7 @@ def _with_jobs(ok=True, jobs=None, only=None):
                                                       only))
     keep = server.remotemod
     server.remotemod = _Mod
-    server._JOBS_CACHE.clear()
+    server.jobs_cache_clear()
     if server.hostsmod:
         server.hostsmod.reader_reset()
     _FakeJobs.calls = 0
@@ -2624,15 +2641,21 @@ def test_the_ui_javascript_parses():
     compiles either way and the page just does nothing. `node --check` is the
     only cheap check that reads it as JavaScript. Skipped where node is not
     installed; it is a developer aid, not a runtime dependency."""
+    _node_check(server.PAGE, "ui.js")
+
+
+def _node_check(page, name):
+    """`node --check` the <script> of a SERVED page -- the string after
+    Python has processed its escapes and joined its shared pieces
+    (STYLE_CSS, PANEL_HTML, PANEL_JS), which is what a browser runs. Reading
+    server.py's source text stopped being that once the page was assembled
+    from several strings."""
     import subprocess
-    here = os.path.dirname(os.path.abspath(server.__file__))
-    with open(os.path.join(here, "server.py"), encoding="utf-8") as fh:
-        src = fh.read()
-    js = src[src.index("<script>") + 8:src.index("</script></body></html>")]
+    js = page[page.index("<script>") + 8:page.index("</script></body></html>")]
     d = tempfile.mkdtemp(prefix="browse_js_")
-    p = os.path.join(d, "ui.js")
+    p = os.path.join(d, name)
     with open(p, "w", encoding="utf-8") as fh:
-        fh.write(js.replace("%%", "%"))
+        fh.write(js)
     try:
         r = subprocess.run(["node", "--check", p], stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
@@ -3188,7 +3211,7 @@ def test_the_same_library_name_reads_differently_in_each_kind_of_tree():
         assert say("perf_logs", "oa") == [("OA · undeclared", "info")]
         assert say(".hidden", "oa") == [] and say("_slices", "store") == []
         assert say("orphan", "store") == \
-            [("not in the design record", "warn")]
+            [("not in this checkout's record", "warn")]
         assert say("orphan", "design") == [] and say("orphan", None) == []
         # a work tree's rows carry nothing: the LISTING says scratch
         assert say("adc", "work") == []
@@ -3399,6 +3422,217 @@ def _skip_reader_tests_without_a_reader():
 
 
 _skip_reader_tests_without_a_reader()
+
+
+# ------------------------------------------- one cluster read per machine
+def test_the_shared_cache_reads_once_and_never_caches_a_failure():
+    """Five browsers on five repos asked the cluster the same ten-second
+    question five times. They share a file now -- and a failed read must
+    never be written down, or "no host answered" is served for a ttl."""
+    import time
+    keep = os.environ.get("BROWSE_CACHE_DIR")
+    os.environ["BROWSE_CACHE_DIR"] = tempfile.mkdtemp(prefix="browse_sc_")
+    calls = []
+
+    def fetch():
+        calls.append(1)
+        return {"n": len(calls), "seconds": 1.0}
+    try:
+        v, age, fresh = tools.shared_cached("t", 60, fetch)
+        assert v == {"n": 1, "seconds": 1.0} and fresh and len(calls) == 1
+        v, age, fresh = tools.shared_cached("t", 60, fetch)
+        assert v["n"] == 1 and not fresh and len(calls) == 1, "not shared"
+        v, _a, fresh = tools.shared_cached("t", 60, fetch, refresh=True)
+        assert v["n"] == 2 and fresh, "refresh did not re-read"
+        # ttl as a function of the value: a read that cost a lot stays longer
+        v, _a, fresh = tools.shared_cached("t", lambda d: 0.0, fetch)
+        assert fresh and v["n"] == 3
+        # a failure is returned and NOT cached
+        v, _a, fresh = tools.shared_cached("u", 60, lambda: None)
+        assert v is None and fresh
+        assert not os.path.exists(tools._shared_path("u"))
+        # a lock left by a reader that died is taken over, not waited on
+        lock = tools._shared_path("w") + ".lock"
+        with open(lock, "w") as fh:
+            fh.write("999999")
+        old = time.time() - 3600
+        os.utime(lock, (old, old))
+        t0 = time.time()
+        v, _a, fresh = tools.shared_cached("w", 60, lambda: {"ok": 1}, wait=5)
+        assert v == {"ok": 1} and fresh and time.time() - t0 < 4
+        assert not os.path.exists(lock), "the lock was not released"
+    finally:
+        if keep is None:
+            os.environ.pop("BROWSE_CACHE_DIR", None)
+        else:
+            os.environ["BROWSE_CACHE_DIR"] = keep
+
+
+# --------------------------------------------------------------- markdown
+def _md_tree():
+    base = tempfile.mkdtemp(prefix="browse_md_")
+    root = os.path.join(base, "root")
+    os.makedirs(os.path.join(root, "docs", "sub"))
+    with open(os.path.join(root, "docs", "a.md"), "w", encoding="utf-8") as fh:
+        fh.write("<!--docmeta\ntitle: A\n-->\n\n# Title A\n\n"
+                 "See [b](sub/b.md#x), [web](https://example.com/x.md) and "
+                 "![pic](img.png).\n\n<img src=x onerror=alert(1)>\n")
+    with open(os.path.join(root, "docs", "sub", "b.md"), "w",
+              encoding="utf-8") as fh:
+        fh.write("# B\n")
+    with open(os.path.join(root, "docs", "note.txt"), "w") as fh:
+        fh.write("plain\n")
+    return base, [rootsmod.Root("r", root)]
+
+
+def test_markdown_renders_through_the_docs_renderer_with_no_script():
+    """A .md opens as the docs system draws it, in a page that cannot run
+    script whatever the document carries; links to other docs keep
+    rendering, everything else resolves path-shaped under /f/."""
+    import threading
+    import urllib.error
+    from http.server import ThreadingHTTPServer
+    from urllib.request import urlopen
+    if server.mdmod is None:
+        return                       # no docs/mdrender.py on this checkout
+    _b, rs = _md_tree()
+    keep = server.Handler.roots
+    server.Handler.roots = rs
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = "http://127.0.0.1:%d" % srv.server_address[1]
+    try:
+        r = urlopen(url + "/md/r/docs/a.md")
+        html = r.read().decode("utf-8")
+        csp = " ".join(r.headers.get_all("Content-Security-Policy"))
+        assert "script-src 'none'" in csp, csp
+        assert "Title A" in html and "docmeta" not in html
+        assert '<base href="/f/r/docs/">' in html, html[:300]
+        assert 'href="/md/r/docs/sub/b.md#x"' in html, html
+        assert 'href="https://example.com/x.md"' in html   # not rewritten
+        for bad, code in (("/md/r/docs/note.txt", 400),
+                          ("/md/r/../secret.md", 403),
+                          ("/md/nope/a.md", 403)):
+            try:
+                urlopen(url + bad)
+            except urllib.error.HTTPError as exc:
+                assert exc.code in (code, 403, 404), (bad, exc.code)
+            else:
+                raise AssertionError("served %s" % bad)
+        roots = json.loads(urlopen(url + "/api/roots").read())
+        assert roots["markdown"] is True
+    finally:
+        server.Handler.roots = keep
+        srv.shutdown()
+        srv.server_close()
+    page = server.page()
+    assert 'sandbox="allow-same-origin allow-popups"' in page
+
+
+def test_the_page_carries_deep_links():
+    """#r=<root>&p=<dir>&v=<file> -- what the hub and the agent panel use to
+    open ANOTHER repo's browser at a file, and what makes a reload land
+    back where you were."""
+    page = server.page()
+    for needle in ("function setHash(", "async function openFromHash(",
+                   "setHash({r: root, p: rel})",
+                   "setHash({r: ROOT, p: REL, v: rel})",
+                   "await openFromHash()"):
+        assert needle in page, needle
+
+
+# ---------------------------------------------------------------- the hub
+def _hub():
+    keep = os.environ.get("BROWSE_REPO")
+    import hub
+    if keep is None:
+        os.environ.pop("BROWSE_REPO", None)
+    else:
+        os.environ["BROWSE_REPO"] = keep
+    return hub
+
+
+def test_the_hub_page_parses_and_carries_the_shared_panel():
+    hub = _hub()
+    page = hub.hub_page()
+    assert "__UI__" not in page and "__REPO_UI__" not in page
+    assert 'id="interact"' in page and "async function loadJobs" in page
+    assert "async function agentOpen(path)" in page
+    _node_check(page, "hub.js")
+
+
+def _hub_server(hub):
+    import threading
+    srv = hub.server._Server(("127.0.0.1", 0), hub.HubHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, "http://127.0.0.1:%d" % srv.server_address[1]
+
+
+def test_the_hub_serves_no_files_and_starts_only_onboarded_repos():
+    """The hub reads no repo: every browsing route is refused. Its one
+    side effect -- starting a repo's browser -- takes only a repo the hub
+    itself listed, behind the same-origin guard as the kill."""
+    import http.client
+    import urllib.error
+    from urllib.request import urlopen
+    hub = _hub()
+    base = tempfile.mkdtemp(prefix="browse_hub_")
+    repo = os.path.join(base, "spec2si-demo")
+    os.makedirs(os.path.join(repo, "browse"))
+    keep = (hub.launch.onboarded, hub.live_browsers, hub.start)
+    started = []
+    hub.launch.onboarded = lambda: [repo]
+    hub.live_browsers = lambda extra=(): []
+    hub.start = lambda r: started.append(r) or ["python", "x"]
+    srv, url = _hub_server(hub)
+    try:
+        got = json.loads(urlopen(url + "/api/health").read())
+        assert got["app"] == "artifact-hub", got     # never a repo browser
+        d = json.loads(urlopen(url + "/api/hub").read())
+        assert [r["tag"] for r in d["repos"]] == ["demo"], d
+        assert d["repos"][0]["browser"] is None
+        for path in ("/api/list?root=r&path=", "/api/file?root=r&path=x",
+                     "/f/r/x", "/md/r/x.md", "/raw?root=r&path=x"):
+            try:
+                urlopen(url + path)
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 404, (path, exc.code)
+            else:
+                raise AssertionError("the hub served %s" % path)
+
+        def post(body, origin=None):
+            c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1],
+                                           timeout=5)
+            h = {"Content-Type": "application/json"}
+            if origin:
+                h["Origin"] = origin
+            c.request("POST", "/api/hub/start", body=json.dumps(body), headers=h)
+            r = c.getresponse()
+            out = (r.status, r.read().decode())
+            c.close()
+            return out
+        assert post({"repo": "spec2si-other"})[0] == 400
+        assert post({"repo": "../spec2si-demo"})[0] == 400
+        assert post({"repo": "spec2si-demo"}, origin="http://evil.test")[0] == 403
+        assert started == [], started
+        code, body = post({"repo": "spec2si-demo"})
+        assert code == 200 and started == [repo], (code, body)
+    finally:
+        hub.launch.onboarded, hub.live_browsers, hub.start = keep
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_hub_attributes_a_browser_by_what_it_says_not_its_port():
+    """A port is the repo its health reply NAMES. Port order is not
+    identity: two repos started in the other order swap ports."""
+    hub = _hub()
+    a, b = os.path.join(os.sep, "x", "repo-a"), os.path.join(os.sep, "x", "repo-b")
+    live = [{"url": "http://127.0.0.1:8730/", "repo": b, "ui": "1"},
+            {"url": "http://127.0.0.1:8731/", "repo": a, "ui": "2"}]
+    assert hub.browser_state(a, live)["url"].endswith(":8731/")
+    assert hub.browser_state(b, live)["url"].endswith(":8730/")
+    assert hub.browser_state(os.path.join(os.sep, "x", "repo-c"), live) is None
 
 
 def main():

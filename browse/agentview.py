@@ -149,6 +149,71 @@ def sessions(cwd=None, home=None, limit=25, identify=True):
     return out
 
 
+#: How much of a parent-directory session to read when asking whether it
+#: touched a repo. Recent work is what the panel shows, and the tail is
+#: where recent work is; a session that touched the repo only in its first
+#: hour and not since is not one anybody is looking for in this panel.
+_TOUCH_TAIL = 512 * 1024
+
+
+def _spellings(repo):
+    """Every way a transcript writes a path inside `repo`, as bytes.
+
+    A transcript is JSON, so a Windows backslash is DOUBLED on disk
+    (`C:\\dev\\spec2si-x`); the same session may also name the WSL form
+    (`/mnt/c/dev/spec2si-x`) or forward slashes. Matched with a separator
+    after the name, so `spec2si-tsmc6` cannot claim `spec2si-tsmc65`.
+    """
+    name = os.path.basename(os.path.normpath(repo))
+    out = set()
+    for sep in ("\\\\", "/"):
+        out.add((name + sep).encode("utf-8"))
+    drive, rest = os.path.splitdrive(os.path.normpath(repo))
+    if drive:
+        wsl = "/mnt/%s%s/" % (drive[0].lower(), rest.replace("\\", "/"))
+        out.add(wsl.encode("utf-8"))
+    return tuple(out)
+
+
+def sessions_touching(repo, home=None, limit=25, tail=_TOUCH_TAIL):
+    """Sessions started in `repo`'s PARENT directory that touched `repo`.
+
+    -> the same records as `sessions()`, plus `via` (the parent directory)
+    and `hits` (how many times the tail names a path in the repo).
+
+    WHY. A transcript is filed under the directory the session STARTED in,
+    so a session started in `C:\\dev` that edits `C:\\dev\\spec2si-tsmc65` all
+    day is invisible to that repo's panel -- the runlog measured 126 such
+    attempts on one port's cells sitting in `C--dev` alone. The parent's
+    sessions are filtered by evidence in their own tail, never listed
+    wholesale: the parent holds every repo's sessions, and a panel that
+    listed all of them would answer a different question.
+    """
+    parent = os.path.dirname(os.path.normpath(repo))
+    if not parent or parent == os.path.normpath(repo):
+        return []
+    pats = _spellings(repo)
+    out = []
+    for e in sessions(parent, home=home, limit=limit * 4, identify=False):
+        try:
+            with open(e["path"], "rb") as fh:
+                if e["size"] > tail:
+                    fh.seek(e["size"] - tail)
+                raw = fh.read()
+        except OSError:
+            continue
+        hits = sum(raw.count(p) for p in pats)
+        if not hits:
+            continue
+        e["via"] = parent
+        e["hits"] = hits
+        e["title"], _last = _identify(e["path"], e["size"])
+        out.append(e)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _safe_input(inp):
     """Allowlisted fields only. Anything not named here is never read."""
     if not isinstance(inp, dict):

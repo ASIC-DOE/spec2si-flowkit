@@ -354,6 +354,41 @@ def test_concurrent_sessions_in_one_repo_are_both_visible():
     assert [s["title"] for s in ss] == ["live one", "also live", "old one"]
 
 
+def test_a_session_started_in_the_parent_that_edited_the_repo_is_found():
+    """A transcript is filed under the directory the session STARTED in, so a
+    session started in C:/dev that edits C:/dev/spec2si-tsmc65 all day was
+    invisible to that repo's panel. The parent's sessions are filtered by
+    evidence in their own tail -- never listed wholesale, and never matched
+    by a prefix of the name."""
+    d = tempfile.mkdtemp(prefix="agentview_home_")
+    parent = os.path.join(os.sep + "x", "work")
+    repo = os.path.join(parent, "spec2si-tsmc65")
+    proj = os.path.join(d, ".claude", "projects",
+                        agentview.project_slug(parent))
+    os.makedirs(proj)
+
+    def session(name, *paths):
+        with open(os.path.join(proj, name + ".jsonl"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "custom-title", "customTitle": name,
+                                 "sessionId": name}) + "\n")
+            for pth in paths:
+                fh.write(_tool_use("Edit", "t", {"file_path": pth}) + "\n")
+
+    # JSON doubles a Windows backslash on disk; a forward-slash path is the
+    # other spelling a transcript uses
+    session("win", r"C:\dev\spec2si-tsmc65\a.py", r"C:\dev\spec2si-tsmc65\b.py")
+    session("fwd", "C:/dev/spec2si-tsmc65/c.py")
+    session("prefix", r"C:\dev\spec2si-tsmc6\d.py")      # NOT this repo
+    session("other", r"C:\dev\spec2si-aim\e.py")
+    got = {e["id"]: e for e in agentview.sessions_touching(repo, home=d)}
+    assert sorted(got) == ["fwd", "win"], sorted(got)
+    assert got["win"]["hits"] == 2 and got["fwd"]["hits"] == 1, got
+    assert got["win"]["via"] == parent and got["win"]["title"] == "win"
+    # a repo with no parent directory to look in is an empty answer
+    assert agentview.sessions_touching(os.sep, home=d) == []
+
+
 def test_a_session_without_a_title_still_lists():
     d = tempfile.mkdtemp(prefix="agentview_home_")
     proj = os.path.join(d, ".claude", "projects", "C--x")

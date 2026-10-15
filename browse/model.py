@@ -939,7 +939,7 @@ def library_badges(name, repo, role=None):
 
       oa      OA · design library | OA · scratch library | OA · legacy shared
               library | backup | OA · undeclared
-      store   store · N cells | backup | not in the design record
+      store   store · N cells | backup | not in this checkout's record
       design  design record · N cells
       None    design library · N cells | scratch OA library | legacy shared
               OA library  -- the old name-only answer, for a tree nothing
@@ -977,8 +977,13 @@ def library_badges(name, repo, role=None):
             return [_lb("backup", "info", "a set-aside copy")]
         if name.startswith((".", "_")):
             return []
-        return [_lb("not in the design record", "warn",
-                    "bytes in the store that no manifest describes")]
+        # THIS CHECKOUT'S record: the store is live on the cluster and the
+        # record is whatever this checkout last pulled, so a library captured
+        # since then reads here too -- pull before calling it an orphan.
+        return [_lb("not in this checkout's record", "warn",
+                    "no manifest in this checkout describes these bytes -- "
+                    "pull first; if it is still missing, capture it and "
+                    "copy the record back")]
     if role == "design":
         if kind == "design":
             return [_lb("design record · " + _cells(n), "lib", rec)]

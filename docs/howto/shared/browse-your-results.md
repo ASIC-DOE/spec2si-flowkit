@@ -5,7 +5,7 @@ status: active
 area: top
 owner: soumyajit
 updated: 2026-10-15
-summary: Start the artifact browser on this checkout, view a layout or a waveform, cross-probe a schematic, read the design record (which captured view is this file, what does a cell.json bind), list the cluster's trees, and check what an agent did or which processes hold licences. What a port declares in roots.json (its trees and what kind each is, its renderer, its badge sources, its scratch and legacy OA libraries), and what the listing says when it has nothing to badge. The browser is vendored from spec2si-flowkit and identical in every port.
+summary: Start the artifact browser on this checkout (or the hub over every checkout), view a layout or a waveform, cross-probe a schematic, read the design record (which captured view is this file, what does a cell.json bind), list the cluster's trees, and check what an agent did or which processes hold licences. What a port declares in roots.json (its trees and what kind each is, its renderer, its badge sources, its scratch and legacy OA libraries), and what the listing says when it has nothing to badge. The browser is vendored from spec2si-flowkit and identical in every port.
 -->
 
 # How to browse your results
@@ -28,12 +28,35 @@ wherever you are (`--list` says what can be served and what is up); several
 run side by side on consecutive ports. That is a convenience, not how a port
 is served: each checkout serves itself.
 
+## The hub: every repo on one page
+
+```bash
+python browse/hub.py
+```
+
+Opens `http://127.0.0.1:8729`, from any checkout. One row per onboarded repo:
+what it is (its README line), its branch and how far it is ahead of or behind
+its upstream *as of its last fetch*, whether its browser is running and on
+which build, an **Open** link, and a **Start** button that runs that repo's
+own `browse/server.py`. Below it is the same Jobs / Processes / Agent strip
+the repo pages carry, once for the machine; its Agent tab lists sessions
+from every repo and from the parent directory, and an artifact link there
+opens the right repo's browser at that file.
+
+The hub serves no files and cannot read any repo -- every browsing route
+404s there. Each repo's browser still confines itself to its own repo; the
+hub only links between them. A checkout that is behind is worth noticing
+first: the design-record badges compare the cluster's live store against
+whatever record the checkout last pulled.
+
 ## What it shows
 
 | Pane | What you get |
 |---|---|
 | Results | every root the port declared, badged; click through to its files |
-| Interactions | the live job panel, agent activity, licence-holding processes (through the vendored `deployment/bnl/jobs/`) |
+| Interactions | the live job panel, agent activity, licence-holding processes (through the vendored `deployment/bnl/jobs/`). The job list is ONE read per machine: every browser and the hub share a cache file, a browser asking during another's read waits for it, and a read stays fresh for twice what it cost (one list measured 52 s for 1227 records). The agent tab also lists sessions started in the parent directory (`C:/dev`) whose transcript tail names this repo |
+| a Markdown file (`.md`) | rendered by the docs system's own `docs/mdrender.py`, in a sandboxed frame served with a no-script CSP; links to other `.md` files keep rendering, the source is one click away. A port without `docs/mdrender.py` shows the text |
+| the address bar | a deep link -- `#r=<root>&p=<dir>&v=<file>` -- so a reload lands where you were and a link opens a browser at a file; the hub and the agent panel use it |
 | a layout (`.gds`) | rendered PNG through the port's renderer, cropped by window where the renderer takes one; DRC markers overlaid from the `.lyrdb`; the KLayout handoff on Windows |
 | a schematic (`.svg`) | the engine's own drawn model; click a net to dim everything else, in the schematic and the paired layout |
 | a waveform (`.psf`/nutascii) | tran/dc/ac/noise/stb/op, decimated and re-plotted as you zoom — on a port whose engine has a transient reader; a port without one says so |
@@ -43,7 +66,7 @@ is served: each checkout serves itself.
 | a `cell.json` | the views table with the bound view marked, the provenance, the BOM as links to sibling cells, `bom_external` as text — and a warning when a newer generation of a bound view has not been adopted |
 | any local file | which captured view it is, by md5 against the manifests (*captured as `<lib>/<cell>` view `stream`, bound*), or *in no captured view*; a file that is a view's tracked origin with differing bytes is called out as drift |
 | the cluster's `analog/oa/` | each library directory says which kind it is: *OA · design library*, *OA · scratch library*, *OA · legacy shared library*, *backup*, or *OA · undeclared* — from the served repo's record, its `oa_dest.py` and its `libraries` declaration |
-| the cluster's `design_store/` | *store · N cells* for a design library, *not in the design record* for bytes no manifest describes |
+| the cluster's `design_store/` | *store · N cells* for a design library, *not in this checkout's record* for bytes no manifest describes (pull first: the store is live, the record is whatever this checkout last pulled) |
 | a work tree | the listing says *work · scratch*, and so does a `work` directory (or a declared work root) seen from the listing above it |
 
 Nothing here re-derives a verdict. It reads what the flow already wrote and

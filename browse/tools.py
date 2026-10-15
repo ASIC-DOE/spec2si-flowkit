@@ -195,6 +195,104 @@ def cache_dir():
     return d
 
 
+#: ONE READ OF THE CLUSTER FOR EVERY BROWSER ON THIS MACHINE. The job list
+#: and the process scan describe the cluster, not the served repo, so five
+#: servers on five repos asked the same ten-second question five times and
+#: each kept its own in-process answer. They share a file instead: the
+#: answer is written to the cache directory every server already uses, and
+#: a lock file makes a reader that arrives mid-read WAIT for that read
+#: rather than starting a second one beside it.
+SHARED_WAIT_S = 90.0
+
+
+def _shared_path(name):
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
+    return os.path.join(cache_dir(), "shared-%s.json" % safe)
+
+
+def _shared_read(path):
+    """(data, at) or None -- a missing or half-written file is a miss."""
+    import json
+    try:
+        with open(path, encoding="utf-8") as fh:
+            rec = json.load(fh)
+        return rec["data"], float(rec["at"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def shared_cached(name, ttl, fetch, refresh=False, wait=SHARED_WAIT_S):
+    """(value, age_s, fresh) -- `fetch()` once per `ttl` across processes.
+
+    `fetch` returns a JSON-able value, or None for a failed read; a failure
+    is never cached, because "no host answered" written down would be served
+    as the answer for the next `ttl` seconds. `refresh` skips the freshness
+    test but still joins a read already in flight: two panels refreshed in
+    the same second need one cluster read, not two.
+
+    The lock is advisory and self-healing: one older than `wait` is from a
+    process that died mid-read and is taken over. If the wait runs out the
+    caller reads anyway rather than hanging a panel on another process.
+
+    `ttl` may be a function of the cached value: a read that took 52 s is
+    not one to repeat 20 s later, and only the value knows what it cost.
+    """
+    import json
+    import time
+    path = _shared_path(name)
+    lock = path + ".lock"
+    asked = time.time()
+    if not refresh:
+        hit = _shared_read(path)
+        if hit and asked - hit[1] < (ttl(hit[0]) if callable(ttl) else ttl):
+            return hit[0], asked - hit[1], False
+    held = False
+    try:
+        os.makedirs(cache_dir(), exist_ok=True)
+    except OSError:
+        pass
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode("ascii"))
+            os.close(fd)
+            held = True
+            break
+        except FileExistsError:
+            pass
+        except OSError:
+            break                       # no cache dir: just read
+        try:
+            if time.time() - os.path.getmtime(lock) > wait:
+                os.unlink(lock)         # a reader that died mid-read
+                continue
+        except OSError:
+            continue
+        hit = _shared_read(path)
+        if hit and hit[1] >= asked:     # somebody read it after we asked
+            return hit[0], time.time() - hit[1], False
+        if time.time() - asked > wait:
+            break
+        time.sleep(0.25)
+    try:
+        value = fetch()
+        if value is not None:
+            tmp = "%s.%d.part" % (path, os.getpid())
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump({"at": time.time(), "data": value}, fh)
+                os.replace(tmp, path)
+            except OSError:
+                pass
+        return value, 0.0, True
+    finally:
+        if held:
+            try:
+                os.unlink(lock)
+            except OSError:
+                pass
+
+
 def cache_key(abspath, limit=RENDER_SIZE_LIMIT):
     """Content hash, so an edited GDS re-renders and a moved one does not.
 

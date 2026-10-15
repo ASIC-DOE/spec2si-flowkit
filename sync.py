@@ -233,6 +233,7 @@ FILES = [
     ("browse/cluster.py", "browse/cluster.py"),
     ("browse/estimate.py", "browse/estimate.py"),
     ("browse/launch.py", "browse/launch.py"),
+    ("browse/hub.py", "browse/hub.py"),
     ("browse/server.py", "browse/server.py"),
     ("browse/test_browse.py", "browse/test_browse.py"),
     ("housekeeping/run_features.py", "housekeeping/run_features.py"),

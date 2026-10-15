@@ -130,6 +130,85 @@ def _find_mc():
 
 
 mcmod = _find_mc()
+
+
+def _find_mdrender():
+    """The docs system's Markdown renderer, BY PATH. -> module or None
+
+    `docs/mdrender.py` is vendored from the flowkit into every port beside
+    this package, stdlib-only and measured against the repos' own docs, so
+    the browser uses THAT rather than a second renderer that would draw the
+    same file differently from the published site. The served repo's copy
+    first, then the installation's; absent in both, a .md shows as text and
+    the pane says why.
+    """
+    import importlib.util
+    for base in (rootsmod.REPO, _PKG_REPO):
+        p = os.path.join(base, "docs", "mdrender.py")
+        if not os.path.exists(p):
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location("browse_mdrender", p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception:                              # pragma: no cover
+            continue
+        if hasattr(mod, "render"):
+            return mod
+    return None
+
+
+mdmod = _find_mdrender()
+
+#: Markdown pages are shown in a sandboxed iframe under this stylesheet. The
+#: CSP on that response forbids script outright: a repo's docs may carry raw
+#: HTML (mdrender passes a whitelist of tags through), and nothing a document
+#: says should run with the browser's origin.
+MD_CSS = """
+:root { color-scheme: light dark; }
+body { font: 14px/1.55 -apple-system, Segoe UI, Roboto, sans-serif;
+       max-width: 60rem; margin: 1rem auto; padding: 0 1rem; }
+code, pre { font: 12.5px/1.45 ui-monospace, Consolas, monospace; }
+pre { background: #8881; padding: .6rem; overflow: auto; border-radius: 4px; }
+:not(pre) > code { background: #8882; padding: 0 .25rem; border-radius: 3px; }
+table { border-collapse: collapse; margin: .6rem 0; }
+th, td { border: 1px solid #8885; padding: .25rem .5rem; vertical-align: top; }
+blockquote { border-left: 4px solid #8886; margin: .6rem 0; padding: .1rem .8rem; }
+img { max-width: 100%; }
+a { color: #2563eb; }
+@media (prefers-color-scheme: dark) { a { color: #93c5fd; } }
+.mdnote { color: #8a8a8a; font-size: 12px; }
+"""
+_MD_HREF = re.compile(r'(<a\s[^>]*?href=")([^"#?]+?\.md)((?:#[^"]*)?")', re.I)
+_MD_DOCMETA = re.compile(r"\A\s*<!--docmeta.*?-->\s*", re.S)
+
+
+def render_markdown(text, slug, rel):
+    """A whole HTML page for one .md file under root `slug` at `rel`.
+
+    Relative references resolve through a `<base>` pointing at the file's
+    own directory under /f/, which already serves bytes path-shaped for
+    exactly this reason; links to OTHER .md files are rewritten to /md/ so
+    following one keeps rendering instead of dropping to raw text. The
+    docmeta header is stripped from the body (it is metadata, not prose).
+    """
+    import posixpath
+    d = posixpath.dirname(rel)
+    body = mdmod.render(_MD_DOCMETA.sub("", text, count=1))[0]   # (html, headings)
+
+    def _md(m):
+        href = m.group(2)
+        if "://" in href or href.startswith("/"):
+            return m.group(0)
+        tgt = posixpath.normpath(posixpath.join(d, href))
+        if tgt.startswith(".."):
+            return m.group(0)            # outside the root: leave it alone
+        return m.group(1) + "/md/%s/%s" % (slug, quote(tgt)) + m.group(3)
+    body = _MD_HREF.sub(_md, body)
+    base = "/f/%s/%s" % (slug, quote(d + "/" if d else ""))
+    return ("<!doctype html><html><head><meta charset=\"utf-8\">"
+            "<base href=\"%s\"><style>%s</style></head><body>%s</body></html>"
+            % (base, MD_CSS, body))
 #: The job reader, located exactly where cluster.py found the transport --
 #: it IS the transport, and its `list`/`events` wrappers are the whole of
 #: what the live panel needs (plan §6.5).
@@ -154,6 +233,18 @@ _SAFE_HOST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 JOBS_TTL = 20.0
 _JOBS_CACHE = {}
 _JOBS_GUARD = threading.Lock()
+
+
+def jobs_cache_clear():
+    """Forget every cached job list, in this process and the shared file."""
+    with _JOBS_GUARD:
+        _JOBS_CACHE.clear()
+    import glob
+    for f in glob.glob(os.path.join(tools.cache_dir(), "shared-jobs-*")):
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
 import estimate                                        # noqa: E402
 import model                                           # noqa: E402
 if cluster.TRANSPORT_DIR and cluster.TRANSPORT_DIR not in sys.path:
@@ -170,11 +261,8 @@ except ImportError:                                    # pragma: no cover
     from urlparse import urlparse, parse_qs            # type: ignore
     from urllib import quote                           # type: ignore
 
-PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>__REPO_TAG__ — artifact browser</title>
-<style>
-:root { color-scheme: light dark; }
+#: The page's stylesheet, shared with hub.py so the two read as one product.
+STYLE_CSS = """:root { color-scheme: light dark; }
 * { box-sizing: border-box; }
 body { margin:0; font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;
        height:100vh; display:flex; flex-direction:column; }
@@ -311,30 +399,11 @@ td,th { border:1px solid #8884; padding:.15rem .4rem; text-align:left;
 .err  { background:#b0202022; border-left:4px solid #b02020; padding:.4rem .6rem; }
 .xok  { background:#16a34a22; border-left:4px solid #16a34a; padding:.4rem .6rem; }
 .muted { color:#8a8a8a; }
-</style></head><body>
-<header><b id="repo" data-tag="__REPO_TAG__" title="__REPO_PATH__">__REPO_NAME__</b>
-  <span class="muted" id="repodesc">__REPO_DESC__</span>
-  <span class="muted" id="hint">artifact browser &middot; read-only &middot; localhost &middot;
-    <span title="build on screen -- if this differs from the one the server printed, reload">ui __UI__</span></span>
-  <span style="flex:1"></span>
-  <span class="muted" id="status"></span>
-</header>
-<div id="panes">
-  <div id="roots"></div>
-  <div id="list"><div class="crumb" id="crumb"></div>
-    <div class="crumb"><input id="filter" placeholder="filter (name or badge)"
-      style="width:100%;border:0;background:transparent;font:inherit;outline:none"></div>
-    <div id="sortbar" class="netbar"></div>
-  <div id="mcbar" class="tmfacts" hidden></div>
-  <div id="entries"></div></div>
-  <div id="view"><p class="muted">Pick a file.</p></div>
-</div>
-<!-- INTERACTIONS: things you DO, as opposed to things you look at. The file
-     browser and the viewers above are read-only; this strip is where the two
-     actions with consequences live, and keeping them in their own region is
-     the point -- a kill button has no business sitting inside a listing. The
-     agent activity view (plan section 7) becomes the second tab. -->
-<div id="interact">
+"""
+
+#: The bottom strip (jobs, processes, agent) -- shared with hub.py, which
+#: shows the same panel once for every repo instead of once per server.
+PANEL_HTML = """<div id="interact">
   <div id="itabs">
     <span class="itab sel" data-tab="jobs">Jobs</span>
     <span class="itab" data-tab="procs">Processes</span>
@@ -369,7 +438,319 @@ td,th { border:1px solid #8884; padding:.15rem .4rem; text-align:left;
     </div>
   </div>
 </div>
-<script>
+"""
+
+#: The bottom strip's behaviour. Needs `$`, `esc` and `j` from its host page
+#: and an `agentOpen(path, repo)` hook for the artifact link-out.
+PANEL_JS = """// ------------------------------------------------------------- interactions
+const hhmm = t => (t || "").slice(11, 19) || "";
+const clock = m => { const d = new Date(m * 1000);
+  return d.toLocaleString([], {month: "short", day: "numeric",
+                               hour: "2-digit", minute: "2-digit"}); };
+const age = s => s >= 86400 ? (s/86400).toFixed(1) + "d"
+               : s >= 3600  ? (s/3600).toFixed(1) + "h" : Math.round(s/60) + "m";
+
+$("#itabs").onclick = e => {
+  const t = e.target.closest("[data-tab]");
+  if (t) {
+    document.querySelectorAll(".itab").forEach(x =>
+      x.classList.toggle("sel", x === t));
+    $("#tab-jobs").hidden = t.dataset.tab !== "jobs";
+    $("#tab-procs").hidden = t.dataset.tab !== "procs";
+    $("#tab-agent").hidden = t.dataset.tab !== "agent";
+    return;
+  }
+  if (e.target.closest("#itoggle")) $("#interact").classList.toggle("collapsed");
+};
+
+// ---- live jobs (plan §6.5) -----------------------------------------------
+// The ETA is the JOB'S OWN, out of its record: progress.py measures a rate
+// from the work actually done and publishes `eta_s`, `frac`, `phase`. The
+// browser does not re-derive any of it — a second cost model would drift from
+// the first, and the flow is the only thing that knows what a phase means.
+let JOBS_TIMER = null;
+
+function jobRow(j, now) {
+  const age = s => s == null ? "" : s >= 86400 ? (s/86400).toFixed(1) + "d"
+                 : s >= 3600 ? (s/3600).toFixed(1) + "h"
+                 : s >= 60 ? Math.round(s/60) + "m" : Math.round(s) + "s";
+  const tone = {running: "b-run", done: "b-ok", failed: "b-bad",
+                queued: "b-info"}[j.state] || "b-info";
+  // A HEARTBEAT THAT STOPPED IS NOT A RUNNING JOB. `state` is what the record
+  // last managed to write, so a job whose host died stays "running" forever;
+  // the age of its heartbeat is the only thing that can contradict it, and
+  // saying "stale 2.1h" beside a running badge is the honest reading.
+  const beat = j.heartbeat ? now - j.heartbeat : null;
+  const stale = j.state === "running" && beat != null && beat > 300;
+  const bar = (j.frac != null)
+    ? `<div class="jbar"><i style="width:${Math.round(100*j.frac)}%"></i></div>
+       <span class="muted">${Math.round(100*j.frac)}%</span>` : "";
+  const eta = j.eta_s != null ? `<span class="muted">eta ${age(j.eta_s)}</span>` : "";
+  return `<tr><td><span class="badge ${tone}">${esc(j.state || "?")}</span>
+      ${stale ? `<span class="badge b-warn" title="the record says running but
+        nothing has written to it since">stale ${age(beat)}</span>` : ""}</td>
+    <td>${esc(j.flow || "")}/${esc(j.target || "")}</td>
+    <td class="muted">${esc(j.host || "")}</td>
+    <td>${age(j.elapsed_s)}</td>
+    <td>${bar}${eta}</td>
+    <td class="muted">${esc(j.phase || "")}</td>
+    <td class="muted" title="${esc(j.jobid || "")}">${esc((j.jobid||"").slice(-4))}</td></tr>`;
+}
+
+async function loadJobs(refresh) {
+  const msg = t => { const e = $("#jmsg"); if (e) e.textContent = t || ""; };
+  msg("reading the cluster…");
+  let d;
+  try { d = await j("/api/jobs" + (refresh ? "?refresh=1" : "")); }
+  catch (err) { msg(""); $("#jobs").innerHTML =
+    `<div class="err">${esc(err.message)}</div>`; return; }
+  const now = d.now || Math.floor(Date.now()/1000);
+  const jobs = (d.jobs || []).slice();
+  // RUNNING FIRST, then most recent. The panel exists to answer "what is
+  // happening", and a finished job from last week outranking a live one by
+  // start time is the sort order answering a different question.
+  const rank = s => s === "running" ? 0 : s === "queued" ? 1 : 2;
+  jobs.sort((a, b) => rank(a.state) - rank(b.state) ||
+                      (b.started || 0) - (a.started || 0));
+  const live = jobs.filter(x => x.state === "running").length;
+  $("#jobs").innerHTML = jobs.length
+    ? `<table><tr><th>state</th><th>flow/target</th><th>host</th><th>elapsed</th>
+         <th>progress</th><th>phase</th><th>id</th></tr>` +
+      jobs.slice(0, 40).map(x => jobRow(x, now)).join("") + `</table>` +
+      (jobs.length > 40 ? `<p class="muted">${jobs.length - 40} older job(s)
+        not shown</p>` : "")
+    : `<p class="muted">no job records on ${esc(d.fs)}</p>`;
+  // The host is PROVENANCE -- which box served the read -- not scope. Every
+  // host on the filesystem returns the same records, so naming it answers
+  // "who answered and how fast", never "what am I not seeing".
+  msg(`${live} running of ${jobs.length} on ${d.fs}` +
+      (d.cached ? " · cached" + (d.age_s != null
+                    ? ` ${Math.round(d.age_s)}s ago (shared by every browser on this machine)` : "")
+                : ` · read from ${d.host} in ${d.seconds}s`));
+  // THE WATCH INTERVAL COMES FROM WHAT THE READ COST, exactly as the waveform
+  // watch does. A `list` is ~10 s against the cluster; polling that every few
+  // seconds would leave a permanent job on the head node to produce a table
+  // nobody is looking at between blinks.
+  if (JOBS_TIMER) { clearInterval(JOBS_TIMER); JOBS_TIMER = null; }
+  const box = $("#jwatch");
+  if (box && box.checked) {
+    const every = Math.min(300000, Math.max(30000,
+      Math.round((d.seconds || 10) * 4) * 1000));
+    msg($("#jmsg").textContent + ` · every ${every/1000}s`);
+    JOBS_TIMER = setInterval(() => {
+      if (!$("#jwatch") || !$("#jwatch").checked || $("#tab-jobs").hidden) {
+        clearInterval(JOBS_TIMER); JOBS_TIMER = null; return;
+      }
+      loadJobs(true);
+    }, every);
+  }
+}
+
+$("#btn-jobs").onclick = () => loadJobs(true);
+$("#jwatch").onchange = () => {
+  if ($("#jwatch").checked) loadJobs(false);
+  else if (JOBS_TIMER) { clearInterval(JOBS_TIMER); JOBS_TIMER = null; }
+};
+
+$("#btn-scan").onclick = async () => {
+  const b = $("#btn-scan");
+  b.disabled = true; $("#imsg").textContent = "scanning…";
+  try {
+    const d = await j("/api/procs");
+    renderProcs(d.hosts || {});
+    $("#imsg").textContent = "";
+  } catch (err) {
+    $("#imsg").textContent = "";
+    $("#procs").innerHTML = `<div class="err">${esc(err.message)}</div>`;
+  }
+  b.disabled = false;
+};
+
+function renderProcs(hosts) {
+  let html = "", n = 0;
+  for (const [host, r] of Object.entries(hosts)) {
+    if (r.error) {
+      // NOT "no processes": an unreachable host reported as clean is the
+      // exact failure this whole thing exists to prevent.
+      html += `<div class="warn"><b>${esc(host)}</b> — could not scan:
+               ${esc(r.error)}</div>`;
+      continue;
+    }
+    const groups = (r.sessions || []).filter(g => g.root.suspect || g.safe_to_kill);
+    if (!groups.length) { html += `<div class="pev">${esc(host)} — clean</div>`;
+                          continue; }
+    for (const g of groups) {
+      n++;
+      const root = g.root;
+      const tone = g.safe_to_kill ? "b-bad" : "b-warn";
+      const label = g.safe_to_kill ? "abandoned" : "suspect";
+      html += `<div class="psess">
+        <h4><span class="badge ${tone}">${label}</span>
+            <b>${esc(root.name)}</b>
+            <span class="muted">${esc(host)} · pid ${root.pid} ·
+              ${age(g.age_s)} · ${g.n} proc · ${g.rss_mb} MB ·
+              ${esc(root.vendor || "?")}</span>
+            ${root.protected.length ? "" :
+              `<button data-kill="${esc(host)}" data-pid="${root.pid}"
+                 data-expect="${esc(root.name)}">Kill…</button>`}</h4>` +
+        root.evidence.map(e =>
+          `<div class="pev">• ${esc(e.kind)}: ${esc(e.why)}</div>`).join("") +
+        root.protected.map(p =>
+          `<div class="pev">✓ protected: ${esc(p)}</div>`).join("") +
+        `<div class="pargs">${esc(root.args.slice(0, 160))}</div></div>`;
+    }
+  }
+  $("#procs").innerHTML = html ||
+    `<div class="pev">nothing stale found</div>`;
+  $("#imsg").textContent = n ? `${n} session(s) worth a look` : "";
+}
+
+// ---- agent activity (plan section 7) --------------------------------------
+let AGENT_ROOTS = [];
+
+async function loadAgent(session) {
+  const b = $("#btn-agent");
+  b.disabled = true;
+  try {
+    const d = await j("/api/agent" + (session ? "?session=" +
+                      encodeURIComponent(session) : ""));
+    if (d.note) { $("#agent-now").innerHTML =
+      `<div class="pev">${esc(d.note)}</div>`; b.disabled = false; return; }
+    AGENT_ROOTS = d.roots || [];
+    // The picker must NAME the session. Two agents in one repo is not
+    // hypothetical -- measured here, two overlapped by an hour and a half --
+    // and a list of hex ids gives no way to tell which one you are reading,
+    // nor that a second one is running at all.
+    const sel = $("#agent-session");
+    sel.innerHTML = (d.sessions || []).map(s =>
+      `<option value="${esc(s.id)}">${s.live ? "● " : "○ "}` +
+      `${s.repo ? "[" + esc(s.repo) + "] " : ""}` +
+      `${esc(s.title || s.id.slice(0, 8))} · ${esc(clock(s.mtime))}` +
+      `${s.via ? " · started in " + esc(s.via) + " (" + s.hits + " refs here)" : ""}` +
+      `</option>`).join("");
+    sel.value = d.session;
+    const others = (d.sessions || []).filter(s => s.live && s.id !== d.session);
+    $("#agent-other").innerHTML = others.length
+      ? `<div class="warn" style="margin:.2rem 0">also live in this repo:
+         ${others.map(s => `<a data-sess="${esc(s.id)}"
+           style="cursor:pointer;text-decoration:underline">${esc(s.title
+           || s.id.slice(0,8))}</a>`).join(", ")}</div>`
+      : "";
+
+    // NOW -- the single line that matters: what is it doing, or what is it
+    // blocked on. During a 25-minute LVS this is the difference between
+    // "stuck" and "Calibre is just slow".
+    const n = d.now, tone = {running: "b-run", "waiting-on-you": "b-warn",
+                             idle: "b-info", working: "b-ok"}[n.state] || "b-info";
+    $("#agent-now").innerHTML =
+      `<div class="psess"><h4><span class="badge ${tone}">${esc(n.state)}</span>
+        ${esc(n.detail || "")}
+        <span class="muted">${n.since_s != null ? age(n.since_s) : ""}
+        · ${d.n_events} events in the tail
+        ${d.fleet.n ? "· " + d.fleet.n + " subagent calls (" + d.fleet.open
+                      + " open)" : ""}</span></h4></div>`;
+
+    $("#agent-warn").innerHTML = (d.thrash || []).map(t =>
+      `<div class="warn" style="margin:.2rem 0">${esc(t.why)}</div>`).join("");
+
+    // GROUPED BY TURN, newest first. A flat list of "Bash 3s / Edit 0s" is a
+    // stream with no reason attached to any of it; the turn says these
+    // actions all served one request, how long it took, what it touched and
+    // whether anything failed.
+    $("#agent-time").innerHTML = (d.turns || []).slice().reverse().map(t =>
+      `<div class="psess"><h4>
+         <span class="badge ${t.errors ? "b-bad" : "b-info"}">${hhmm(t.started)}</span>
+         ${t.partial ? "<span class='muted'>(continues from earlier)</span>" : ""}
+         <span class="muted">${t.n} actions · ${age(t.dur_s)}
+         ${t.errors ? "· " + t.errors + " failed" : ""}
+         ${t.files.length ? "· " + esc(t.files.join(", ")) : ""}</span></h4>` +
+      t.actions.slice().reverse().map(e => {
+        const lab = e.path || e.summary || "";
+        const link = e.artifact ? ` data-open="${esc(e.path)}"` : "";
+        return `<div class="pev"${link} ${e.artifact ?
+          'style="cursor:pointer;text-decoration:underline"' : ""}>` +
+          `<span class="muted">${hhmm(e.t)}</span> ` +
+          `${e.error ? "✗ " : e.done ? "" : "▶ "}` +
+          `<b>${esc(e.tool || "")}</b> ${esc(lab.slice(0, 90))}` +
+          `${e.elapsed_s != null ? " · " + e.elapsed_s + "s" : ""}` +
+          `${e.sidechain ? " · subagent" : ""}</div>`;
+      }).join("") + `</div>`).join("");
+  } catch (err) {
+    $("#agent-now").innerHTML = `<div class="err">${esc(err.message)}</div>`;
+  }
+  b.disabled = false;
+}
+
+$("#btn-agent").onclick = () => loadAgent($("#agent-session").value);
+$("#agent-session").onchange = e => loadAgent(e.target.value);
+$("#agent-other").onclick = e => {
+  const a = e.target.closest("[data-sess]");
+  if (a) loadAgent(a.dataset.sess);
+};
+
+// Artifact link-out: "the agent just produced this -- look at it, now". This
+// is what makes the browser and the activity view one product rather than two.
+$("#agent-time").onclick = e => {
+  const el = e.target.closest("[data-open]");
+  if (el) agentOpen(el.dataset.open, el.dataset.repo);
+};
+
+$("#procs").onclick = async e => {
+  const b = e.target.closest("[data-kill]");
+  if (!b) return;
+  // Two clicks, and the second one names what it is about to do. This is the
+  // only irreversible thing in the whole browser.
+  if (!confirm(`Terminate ${b.dataset.expect} (pid ${b.dataset.pid}) on `
+             + `${b.dataset.kill}?\n\nSIGTERM is sent first and the command `
+             + `line is re-checked on the host before anything is signalled. `
+             + `Any unsaved work in that tool is lost.`)) return;
+  b.disabled = true; b.textContent = "…";
+  try {
+    const r = await fetch("/api/procs/kill", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({host: b.dataset.kill, pid: +b.dataset.pid,
+                            expect: b.dataset.expect})});
+    const o = r.ok ? await r.json() : {result: await r.text()};
+    b.textContent = o.result + (o.note ? " — " + o.note : "");
+  } catch (err) { b.textContent = "failed: " + err.message; }
+};
+
+// A panel that populates only when you click it looks broken, because an
+// empty box and a broken box are the same picture. The agent view reads a
+// local file tail and costs ~11 kB, so it loads with the page and the tab is
+// never empty when revealed. The process scan stays on its button: that one
+// is eleven ssh round trips.
+loadAgent();
+"""
+
+PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>__REPO_TAG__ — artifact browser</title>
+<style>
+""" + STYLE_CSS + """</style></head><body>
+<header><b id="repo" data-tag="__REPO_TAG__" title="__REPO_PATH__">__REPO_NAME__</b>
+  <span class="muted" id="repodesc">__REPO_DESC__</span>
+  <span class="muted" id="hint">artifact browser &middot; read-only &middot; localhost &middot;
+    <span title="build on screen -- if this differs from the one the server printed, reload">ui __UI__</span></span>
+  <span style="flex:1"></span>
+  <span class="muted" id="status"></span>
+</header>
+<div id="panes">
+  <div id="roots"></div>
+  <div id="list"><div class="crumb" id="crumb"></div>
+    <div class="crumb"><input id="filter" placeholder="filter (name or badge)"
+      style="width:100%;border:0;background:transparent;font:inherit;outline:none"></div>
+    <div id="sortbar" class="netbar"></div>
+  <div id="mcbar" class="tmfacts" hidden></div>
+  <div id="entries"></div></div>
+  <div id="view"><p class="muted">Pick a file.</p></div>
+</div>
+<!-- INTERACTIONS: things you DO, as opposed to things you look at. The file
+     browser and the viewers above are read-only; this strip is where the two
+     actions with consequences live, and keeping them in their own region is
+     the point -- a kill button has no business sitting inside a listing. The
+     agent activity view (plan section 7) becomes the second tab. -->
+""" + PANEL_HTML + """<script>
 const $ = s => document.querySelector(s);
 let ROOTS = [];
 let ROOT = null, SLUG = null, REL = "", ENTRIES = [], REMOTE_INFO = "";
@@ -392,13 +773,39 @@ async function j(u) {
 // line stays one hover away
 function status(t) { const e = $("#status"); e.textContent = e.title = t || ""; }
 
+// DEEP LINKS: #r=<root>&p=<dir>&v=<file>. The address bar says where you
+// are, so a reload lands back there, a link can be pasted, and the hub and
+// the agent panel can open ANOTHER repo's browser at a file rather than at
+// its first root. replaceState, not assignment: a listing click is not a
+// history entry anybody wants to step back through one directory at a time.
+function setHash(o) {
+  const q = new URLSearchParams();
+  for (const k of ["r", "p", "v"]) if (o[k]) q.set(k, o[k]);
+  try { history.replaceState(null, "", "#" + q.toString()); } catch (e) {}
+}
+
+async function openFromHash() {
+  const q = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const r = q.get("r");
+  if (!r || !ROOTS.find(x => x.name === r)) return false;
+  await open(r, q.get("p") || "");
+  if (q.get("v")) view(q.get("v"));
+  return true;
+}
+
+// a link pasted into an open tab changes only the hash, which reloads
+// nothing; replaceState above does not fire this, so it cannot loop
+window.addEventListener("hashchange", () => { openFromHash(); });
+
 async function loadRoots(keepSelection) {
   const d = await j("/api/roots");
   ROOTS = d.roots;
   SETTINGS = {renderer: d.renderer, badge_sources: d.badge_sources || [],
-              design: !!d.design};
+              design: !!d.design, markdown: !!d.markdown};
   paintRoots();
-  if (!keepSelection) {
+  if (!keepSelection && await openFromHash()) {
+    // a deep link named where to start
+  } else if (!keepSelection) {
     // open on a LOCAL root: starting on a remote one would make the first
     // paint wait on ssh, and a browser that hangs before it draws reads broken
     const first = ROOTS.find(r => r.exists === true);
@@ -507,6 +914,7 @@ async function addRoot(groupName) {
 
 async function open(root, rel) {
   ROOT = root; REL = rel;
+  setHash({r: root, p: rel});
   SLUG = (ROOTS.find(r => r.name === root) || {}).slug;
   document.querySelectorAll("[data-root]").forEach(
     el => el.classList.toggle("sel", el.dataset.root === root));
@@ -782,6 +1190,7 @@ async function mcView(art) {
 }
 
 async function view(rel) {
+  setHash({r: ROOT, p: REL, v: rel});
   // path-shaped, so relative refs inside an HTML artifact resolve
   const raw = `/f/${SLUG}/${rel.split("/").map(encodeURIComponent).join("/")}`;
   let d;
@@ -825,6 +1234,19 @@ async function view(rel) {
       body = d.nets ? crossProbe(d, rel) : `<img src="${raw}">`;
       break;
     case "html":  body = `<iframe src="${raw}" style="width:100%;height:80vh;border:1px solid #8884"></iframe>`; break;
+    case "text":
+      // MARKDOWN RENDERS, through the docs system's own renderer, sandboxed
+      // (no allow-scripts) and served with a no-script CSP; the source stays
+      // one click away. A port without docs/mdrender.py shows the text.
+      if (/\\.md$/i.test(rel) && SETTINGS.markdown) {
+        const md = `/md/${SLUG}/${rel.split("/").map(encodeURIComponent).join("/")}`;
+        body = `<iframe sandbox="allow-same-origin allow-popups" src="${md}"
+                  style="width:100%;height:78vh;border:1px solid #8884"></iframe>
+                <details><summary>source</summary><pre>${esc(d.text)}</pre></details>`;
+      } else {
+        body = `<pre>${esc(d.text)}</pre>`;
+      }
+      break;
     case "json": {
       const special = d.abstract ? trackMap(d.abstract)
         : d.abstract_error ? `<div class="warn">track map: ${esc(d.abstract_error)}</div>`
@@ -1876,255 +2298,12 @@ function wireGds(rel) {
     k.disabled = false;
   };
 }
-// ------------------------------------------------------------- interactions
-const hhmm = t => (t || "").slice(11, 19) || "";
-const clock = m => { const d = new Date(m * 1000);
-  return d.toLocaleString([], {month: "short", day: "numeric",
-                               hour: "2-digit", minute: "2-digit"}); };
-const age = s => s >= 86400 ? (s/86400).toFixed(1) + "d"
-               : s >= 3600  ? (s/3600).toFixed(1) + "h" : Math.round(s/60) + "m";
-
-$("#itabs").onclick = e => {
-  const t = e.target.closest("[data-tab]");
-  if (t) {
-    document.querySelectorAll(".itab").forEach(x =>
-      x.classList.toggle("sel", x === t));
-    $("#tab-jobs").hidden = t.dataset.tab !== "jobs";
-    $("#tab-procs").hidden = t.dataset.tab !== "procs";
-    $("#tab-agent").hidden = t.dataset.tab !== "agent";
-    return;
-  }
-  if (e.target.closest("#itoggle")) $("#interact").classList.toggle("collapsed");
-};
-
-// ---- live jobs (plan §6.5) -----------------------------------------------
-// The ETA is the JOB'S OWN, out of its record: progress.py measures a rate
-// from the work actually done and publishes `eta_s`, `frac`, `phase`. The
-// browser does not re-derive any of it — a second cost model would drift from
-// the first, and the flow is the only thing that knows what a phase means.
-let JOBS_TIMER = null;
-
-function jobRow(j, now) {
-  const age = s => s == null ? "" : s >= 86400 ? (s/86400).toFixed(1) + "d"
-                 : s >= 3600 ? (s/3600).toFixed(1) + "h"
-                 : s >= 60 ? Math.round(s/60) + "m" : Math.round(s) + "s";
-  const tone = {running: "b-run", done: "b-ok", failed: "b-bad",
-                queued: "b-info"}[j.state] || "b-info";
-  // A HEARTBEAT THAT STOPPED IS NOT A RUNNING JOB. `state` is what the record
-  // last managed to write, so a job whose host died stays "running" forever;
-  // the age of its heartbeat is the only thing that can contradict it, and
-  // saying "stale 2.1h" beside a running badge is the honest reading.
-  const beat = j.heartbeat ? now - j.heartbeat : null;
-  const stale = j.state === "running" && beat != null && beat > 300;
-  const bar = (j.frac != null)
-    ? `<div class="jbar"><i style="width:${Math.round(100*j.frac)}%"></i></div>
-       <span class="muted">${Math.round(100*j.frac)}%</span>` : "";
-  const eta = j.eta_s != null ? `<span class="muted">eta ${age(j.eta_s)}</span>` : "";
-  return `<tr><td><span class="badge ${tone}">${esc(j.state || "?")}</span>
-      ${stale ? `<span class="badge b-warn" title="the record says running but
-        nothing has written to it since">stale ${age(beat)}</span>` : ""}</td>
-    <td>${esc(j.flow || "")}/${esc(j.target || "")}</td>
-    <td class="muted">${esc(j.host || "")}</td>
-    <td>${age(j.elapsed_s)}</td>
-    <td>${bar}${eta}</td>
-    <td class="muted">${esc(j.phase || "")}</td>
-    <td class="muted" title="${esc(j.jobid || "")}">${esc((j.jobid||"").slice(-4))}</td></tr>`;
-}
-
-async function loadJobs(refresh) {
-  const msg = t => { const e = $("#jmsg"); if (e) e.textContent = t || ""; };
-  msg("reading the cluster…");
-  let d;
-  try { d = await j("/api/jobs" + (refresh ? "?refresh=1" : "")); }
-  catch (err) { msg(""); $("#jobs").innerHTML =
-    `<div class="err">${esc(err.message)}</div>`; return; }
-  const now = d.now || Math.floor(Date.now()/1000);
-  const jobs = (d.jobs || []).slice();
-  // RUNNING FIRST, then most recent. The panel exists to answer "what is
-  // happening", and a finished job from last week outranking a live one by
-  // start time is the sort order answering a different question.
-  const rank = s => s === "running" ? 0 : s === "queued" ? 1 : 2;
-  jobs.sort((a, b) => rank(a.state) - rank(b.state) ||
-                      (b.started || 0) - (a.started || 0));
-  const live = jobs.filter(x => x.state === "running").length;
-  $("#jobs").innerHTML = jobs.length
-    ? `<table><tr><th>state</th><th>flow/target</th><th>host</th><th>elapsed</th>
-         <th>progress</th><th>phase</th><th>id</th></tr>` +
-      jobs.slice(0, 40).map(x => jobRow(x, now)).join("") + `</table>` +
-      (jobs.length > 40 ? `<p class="muted">${jobs.length - 40} older job(s)
-        not shown</p>` : "")
-    : `<p class="muted">no job records on ${esc(d.fs)}</p>`;
-  // The host is PROVENANCE -- which box served the read -- not scope. Every
-  // host on the filesystem returns the same records, so naming it answers
-  // "who answered and how fast", never "what am I not seeing".
-  msg(`${live} running of ${jobs.length} on ${d.fs}` +
-      (d.cached ? " · cached"
-                : ` · read from ${d.host} in ${d.seconds}s`));
-  // THE WATCH INTERVAL COMES FROM WHAT THE READ COST, exactly as the waveform
-  // watch does. A `list` is ~10 s against the cluster; polling that every few
-  // seconds would leave a permanent job on the head node to produce a table
-  // nobody is looking at between blinks.
-  if (JOBS_TIMER) { clearInterval(JOBS_TIMER); JOBS_TIMER = null; }
-  const box = $("#jwatch");
-  if (box && box.checked) {
-    const every = Math.min(300000, Math.max(30000,
-      Math.round((d.seconds || 10) * 4) * 1000));
-    msg($("#jmsg").textContent + ` · every ${every/1000}s`);
-    JOBS_TIMER = setInterval(() => {
-      if (!$("#jwatch") || !$("#jwatch").checked || $("#tab-jobs").hidden) {
-        clearInterval(JOBS_TIMER); JOBS_TIMER = null; return;
-      }
-      loadJobs(true);
-    }, every);
-  }
-}
-
-$("#btn-jobs").onclick = () => loadJobs(true);
-$("#jwatch").onchange = () => {
-  if ($("#jwatch").checked) loadJobs(false);
-  else if (JOBS_TIMER) { clearInterval(JOBS_TIMER); JOBS_TIMER = null; }
-};
-
-$("#btn-scan").onclick = async () => {
-  const b = $("#btn-scan");
-  b.disabled = true; $("#imsg").textContent = "scanning…";
-  try {
-    const d = await j("/api/procs");
-    renderProcs(d.hosts || {});
-    $("#imsg").textContent = "";
-  } catch (err) {
-    $("#imsg").textContent = "";
-    $("#procs").innerHTML = `<div class="err">${esc(err.message)}</div>`;
-  }
-  b.disabled = false;
-};
-
-function renderProcs(hosts) {
-  let html = "", n = 0;
-  for (const [host, r] of Object.entries(hosts)) {
-    if (r.error) {
-      // NOT "no processes": an unreachable host reported as clean is the
-      // exact failure this whole thing exists to prevent.
-      html += `<div class="warn"><b>${esc(host)}</b> — could not scan:
-               ${esc(r.error)}</div>`;
-      continue;
-    }
-    const groups = (r.sessions || []).filter(g => g.root.suspect || g.safe_to_kill);
-    if (!groups.length) { html += `<div class="pev">${esc(host)} — clean</div>`;
-                          continue; }
-    for (const g of groups) {
-      n++;
-      const root = g.root;
-      const tone = g.safe_to_kill ? "b-bad" : "b-warn";
-      const label = g.safe_to_kill ? "abandoned" : "suspect";
-      html += `<div class="psess">
-        <h4><span class="badge ${tone}">${label}</span>
-            <b>${esc(root.name)}</b>
-            <span class="muted">${esc(host)} · pid ${root.pid} ·
-              ${age(g.age_s)} · ${g.n} proc · ${g.rss_mb} MB ·
-              ${esc(root.vendor || "?")}</span>
-            ${root.protected.length ? "" :
-              `<button data-kill="${esc(host)}" data-pid="${root.pid}"
-                 data-expect="${esc(root.name)}">Kill…</button>`}</h4>` +
-        root.evidence.map(e =>
-          `<div class="pev">• ${esc(e.kind)}: ${esc(e.why)}</div>`).join("") +
-        root.protected.map(p =>
-          `<div class="pev">✓ protected: ${esc(p)}</div>`).join("") +
-        `<div class="pargs">${esc(root.args.slice(0, 160))}</div></div>`;
-    }
-  }
-  $("#procs").innerHTML = html ||
-    `<div class="pev">nothing stale found</div>`;
-  $("#imsg").textContent = n ? `${n} session(s) worth a look` : "";
-}
-
-// ---- agent activity (plan section 7) --------------------------------------
-let AGENT_ROOTS = [];
-
-async function loadAgent(session) {
-  const b = $("#btn-agent");
-  b.disabled = true;
-  try {
-    const d = await j("/api/agent" + (session ? "?session=" +
-                      encodeURIComponent(session) : ""));
-    if (d.note) { $("#agent-now").innerHTML =
-      `<div class="pev">${esc(d.note)}</div>`; b.disabled = false; return; }
-    AGENT_ROOTS = d.roots || [];
-    // The picker must NAME the session. Two agents in one repo is not
-    // hypothetical -- measured here, two overlapped by an hour and a half --
-    // and a list of hex ids gives no way to tell which one you are reading,
-    // nor that a second one is running at all.
-    const sel = $("#agent-session");
-    sel.innerHTML = (d.sessions || []).map(s =>
-      `<option value="${esc(s.id)}">${s.live ? "● " : "○ "}` +
-      `${esc(s.title || s.id.slice(0, 8))} · ${esc(clock(s.mtime))}` +
-      `</option>`).join("");
-    sel.value = d.session;
-    const others = (d.sessions || []).filter(s => s.live && s.id !== d.session);
-    $("#agent-other").innerHTML = others.length
-      ? `<div class="warn" style="margin:.2rem 0">also live in this repo:
-         ${others.map(s => `<a data-sess="${esc(s.id)}"
-           style="cursor:pointer;text-decoration:underline">${esc(s.title
-           || s.id.slice(0,8))}</a>`).join(", ")}</div>`
-      : "";
-
-    // NOW -- the single line that matters: what is it doing, or what is it
-    // blocked on. During a 25-minute LVS this is the difference between
-    // "stuck" and "Calibre is just slow".
-    const n = d.now, tone = {running: "b-run", "waiting-on-you": "b-warn",
-                             idle: "b-info", working: "b-ok"}[n.state] || "b-info";
-    $("#agent-now").innerHTML =
-      `<div class="psess"><h4><span class="badge ${tone}">${esc(n.state)}</span>
-        ${esc(n.detail || "")}
-        <span class="muted">${n.since_s != null ? age(n.since_s) : ""}
-        · ${d.n_events} events in the tail
-        ${d.fleet.n ? "· " + d.fleet.n + " subagent calls (" + d.fleet.open
-                      + " open)" : ""}</span></h4></div>`;
-
-    $("#agent-warn").innerHTML = (d.thrash || []).map(t =>
-      `<div class="warn" style="margin:.2rem 0">${esc(t.why)}</div>`).join("");
-
-    // GROUPED BY TURN, newest first. A flat list of "Bash 3s / Edit 0s" is a
-    // stream with no reason attached to any of it; the turn says these
-    // actions all served one request, how long it took, what it touched and
-    // whether anything failed.
-    $("#agent-time").innerHTML = (d.turns || []).slice().reverse().map(t =>
-      `<div class="psess"><h4>
-         <span class="badge ${t.errors ? "b-bad" : "b-info"}">${hhmm(t.started)}</span>
-         ${t.partial ? "<span class='muted'>(continues from earlier)</span>" : ""}
-         <span class="muted">${t.n} actions · ${age(t.dur_s)}
-         ${t.errors ? "· " + t.errors + " failed" : ""}
-         ${t.files.length ? "· " + esc(t.files.join(", ")) : ""}</span></h4>` +
-      t.actions.slice().reverse().map(e => {
-        const lab = e.path || e.summary || "";
-        const link = e.artifact ? ` data-open="${esc(e.path)}"` : "";
-        return `<div class="pev"${link} ${e.artifact ?
-          'style="cursor:pointer;text-decoration:underline"' : ""}>` +
-          `<span class="muted">${hhmm(e.t)}</span> ` +
-          `${e.error ? "✗ " : e.done ? "" : "▶ "}` +
-          `<b>${esc(e.tool || "")}</b> ${esc(lab.slice(0, 90))}` +
-          `${e.elapsed_s != null ? " · " + e.elapsed_s + "s" : ""}` +
-          `${e.sidechain ? " · subagent" : ""}</div>`;
-      }).join("") + `</div>`).join("");
-  } catch (err) {
-    $("#agent-now").innerHTML = `<div class="err">${esc(err.message)}</div>`;
-  }
-  b.disabled = false;
-}
-
-$("#btn-agent").onclick = () => loadAgent($("#agent-session").value);
-$("#agent-session").onchange = e => loadAgent(e.target.value);
-$("#agent-other").onclick = e => {
-  const a = e.target.closest("[data-sess]");
-  if (a) loadAgent(a.dataset.sess);
-};
 
 // Artifact link-out: "the agent just produced this -- look at it, now". This
 // is what makes the browser and the activity view one product rather than two.
-$("#agent-time").onclick = async e => {
-  const el = e.target.closest("[data-open]");
-  if (!el) return;
-  const p = el.dataset.open.replace(/\\\\/g, "/");
+// PANEL_JS calls it; the hub defines its own, which opens the right repo.
+async function agentOpen(path) {
+  const p = path.replace(/\\\\/g, "/");
   for (const r of AGENT_ROOTS) {
     const rp = r.path.replace(/\\\\/g, "/");
     if (!p.toLowerCase().startsWith(rp.toLowerCase() + "/")) continue;
@@ -2137,34 +2316,9 @@ $("#agent-time").onclick = async e => {
     return;
   }
   $("#imsg").textContent = "not under a configured root";
-};
+}
 
-$("#procs").onclick = async e => {
-  const b = e.target.closest("[data-kill]");
-  if (!b) return;
-  // Two clicks, and the second one names what it is about to do. This is the
-  // only irreversible thing in the whole browser.
-  if (!confirm(`Terminate ${b.dataset.expect} (pid ${b.dataset.pid}) on `
-             + `${b.dataset.kill}?\n\nSIGTERM is sent first and the command `
-             + `line is re-checked on the host before anything is signalled. `
-             + `Any unsaved work in that tool is lost.`)) return;
-  b.disabled = true; b.textContent = "…";
-  try {
-    const r = await fetch("/api/procs/kill", {method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({host: b.dataset.kill, pid: +b.dataset.pid,
-                            expect: b.dataset.expect})});
-    const o = r.ok ? await r.json() : {result: await r.text()};
-    b.textContent = o.result + (o.note ? " — " + o.note : "");
-  } catch (err) { b.textContent = "failed: " + err.message; }
-};
-
-// A panel that populates only when you click it looks broken, because an
-// empty box and a broken box are the same picture. The agent view reads a
-// local file tail and costs ~11 kB, so it loads with the page and the tab is
-// never empty when revealed. The process scan stays on its button: that one
-// is eleven ssh round trips.
-loadAgent();
+""" + PANEL_JS + """
 
 // STALENESS ANNOUNCES ITSELF. `no-store` stops NEW staleness, but a tab
 // cached before that landed keeps serving itself forever, and the symptom is
@@ -2312,6 +2466,7 @@ class Handler(BaseHTTPRequestHandler):
                                    "repo": rootsmod.REPO})
             if u.path == "/api/roots":
                 return self._json({
+                    "markdown": mdmod is not None,
                     "roots": [r.as_dict() for r in self.roots],
                     # what this repo DECLARED, so the pane can say which
                     # renderer a click will run and which files it badges
@@ -2339,6 +2494,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api_agent(q)
             if u.path.startswith("/render/"):
                 return self._render_bytes(u.path[len("/render/"):])
+            if u.path.startswith("/md/"):
+                return self._markdown(u.path[len("/md/"):])
             if u.path.startswith("/f/"):
                 return self._file_bytes(u.path[3:])
             if u.path == "/raw":
@@ -2831,7 +2988,7 @@ class Handler(BaseHTTPRequestHandler):
         route -- so there is nothing here to filter, and nothing a change here
         could accidentally expose.
         """
-        ss = agentview.sessions(rootsmod.REPO)
+        ss = self._agent_sessions()
         if not ss:
             return self._json({"sessions": [], "note":
                                "no transcripts for %s"
@@ -2844,12 +3001,28 @@ class Handler(BaseHTTPRequestHandler):
         # is running in this repo right now.
         out["sessions"] = [{"id": s["id"], "size": s["size"],
                             "mtime": s["mtime"], "title": s["title"],
-                            "live": s["live"]} for s in ss]
+                            "live": s["live"], "via": s.get("via"),
+                            "hits": s.get("hits"), "repo": s.get("repo")}
+                           for s in ss]
         out["session"] = chosen["id"]
         # so the UI can turn an absolute path from the timeline into a click
         out["roots"] = [{"name": r.name, "path": r.path}
                         for r in self.roots if r.kind == "local"]
         return self._json(out)
+
+    def _agent_sessions(self):
+        """This repo's sessions, plus the PARENT directory's that touched it.
+
+        A session is filed under the directory it was STARTED in, so one
+        started in the parent directory (`C:/dev`) that edits this repo all day was invisible here
+        (agentview.sessions_touching). Newest first, one entry per id. The hub
+        overrides this to show every repo at once.
+        """
+        own = agentview.sessions(rootsmod.REPO)
+        seen = {e["id"] for e in own}
+        extra = [e for e in agentview.sessions_touching(rootsmod.REPO)
+                 if e["id"] not in seen]
+        return sorted(own + extra, key=lambda e: -e["mtime"])[:25]
 
     def _api_mc(self, q):
         """Aggregate one artifact across a Monte Carlo run's iterations.
@@ -2942,30 +3115,49 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(400, "not a host name")
         refresh = _yes(q, "refresh")
         now = time.time()
+        # In-process first (free), then the SHARED file every browser on this
+        # machine reads (tools.shared_cached): five servers on five repos used
+        # to pay five ten-second reads for one identical answer.
         with _JOBS_GUARD:
             hit = _JOBS_CACHE.get(fs)
         if hit and not refresh and now - hit[0] < JOBS_TTL:
             out = dict(hit[1])
             out["cached"] = True
             return self._json(out)
-        res, host, elapsed = hostsmod.shared_read(
-            lambda h: remotemod.Transport(host=h, timeout=60).list(),
-            hosts=hosts, fs=fs, prefer=prefer)
-        if res is None or not res.ok:
+
+        def _read():
+            res, host, elapsed = hostsmod.shared_read(
+                lambda h: remotemod.Transport(host=h, timeout=60).list(),
+                hosts=hosts, fs=fs, prefer=prefer)
+            if res is None or not res.ok:
+                return None                 # never cached: see shared_cached
+            estimate.record("jobs", "remote", 1, elapsed)
+            data = res.data or {}
+            return {"fs": fs, "host": host, "hosts": hosts,
+                    "now": data.get("now") or int(time.time()),
+                    "jobs": data.get("jobs") or [], "cached": False,
+                    "seconds": round(elapsed, 2)}
+
+        # fresh for twice what the read cost, never less than JOBS_TTL --
+        # measured at 52 s for 1227 records, a fixed 20 s shared nothing
+        out, age_s, fresh = tools.shared_cached(
+            "jobs-" + fs,
+            lambda v: max(JOBS_TTL, 2.0 * float((v or {}).get("seconds") or 0)),
+            _read, refresh=refresh)
+        if out is None:
             # Not "no jobs". Every candidate host failed to answer, which is
             # UNKNOWN -- and an empty jobs table would read as a quiet cluster
             # (remote.py invariant 5, carried to the panel).
             tried = ", ".join(hosts[:6]) + ("…" if len(hosts) > 6 else "")
             return self._err(503, "no host on %s answered (tried %s)"
                              % (fs, tried))
-        estimate.record("jobs", "remote", 1, elapsed)
-        data = res.data or {}
-        out = {"fs": fs, "host": host, "hosts": hosts,
-               "now": data.get("now") or int(now),
-               "jobs": data.get("jobs") or [], "cached": False,
-               "seconds": round(elapsed, 2)}
+        out = dict(out)
+        if not fresh:
+            # another browser's read -- say so, and how old it is
+            out["cached"] = True
+            out["age_s"] = round(age_s, 1)
         with _JOBS_GUARD:
-            _JOBS_CACHE[fs] = (now, out)
+            _JOBS_CACHE[fs] = (time.time() - age_s, dict(out, cached=False))
         return self._json(out)
 
     def _jobs_fs(self, q):
@@ -3255,6 +3447,41 @@ class Handler(BaseHTTPRequestHandler):
         _root, abspath = rootsmod.resolve_slug(self.roots, slug, rel)
         return self._bytes(abspath)
 
+    def _markdown(self, tail):
+        """GET /md/<root-slug>/<relpath> -- a .md file rendered to a page.
+
+        Same confinement as /f/ (the tail goes through the same resolvers),
+        local or remote. Served with a CSP that forbids script, on top of the
+        sandbox the viewer puts the iframe in.
+        """
+        if mdmod is None:
+            return self._err(503, "no docs/mdrender.py in the served repo or "
+                                  "this installation -- shown as text instead")
+        tail = unquote(tail)
+        slug, _, rel = tail.partition("/")
+        root = rootsmod.by_slug(self.roots, slug)
+        if root is None:
+            return self._err(403, "unknown root: %r" % slug)
+        if not rel.lower().endswith(".md"):
+            return self._err(400, "not a .md file")
+        if root.kind == "remote":
+            _r, relp = rootsmod.resolve_remote(self.roots, root.name, rel)
+            try:
+                raw, _trunc, _size = cluster.fetch(root.host, root.path, relp)
+            except cluster.RemoteError as exc:
+                return self._err(503, "cluster: %s" % exc)
+        else:
+            _root, abspath = rootsmod.resolve_slug(self.roots, slug, rel)
+            if not os.path.isfile(abspath):
+                return self._err(404, "no such file")
+            with open(abspath, "rb") as fh:
+                raw = fh.read()
+        html = render_markdown(raw.decode("utf-8", "replace"), slug, rel)
+        return self._send(200, html, "text/html; charset=utf-8",
+                          {"Content-Security-Policy":
+                           "default-src 'self' data:; style-src 'unsafe-inline'; "
+                           "script-src 'none'; object-src 'none'"})
+
     def _bytes(self, abspath):
         if os.path.isdir(abspath):
             return self._err(400, "is a directory")
@@ -3451,8 +3678,12 @@ def _wave_payload(wm, w, q):
                              y0=v["y0"], y1=v["y1"])}
 
 
-def state_path():
+def state_path(repo=None):
     """Where the running server records its URL -- outside the repo.
+
+    `repo` asks about ANOTHER checkout's server (the hub does, for every
+    repo); it must be spelled the way that server spells its own REPO --
+    the resolved real path -- or the hash names a file nobody writes.
 
     So that `--status` can answer "where is it?" from any shell, and so a
     second launch can find the first instead of racing it.
@@ -3463,7 +3694,8 @@ def state_path():
     and the next AIML launch probed it, found a live server, and exited as
     "already running" against a browser serving a different repository.
     """
-    tag = hashlib.sha256(rootsmod.REPO.encode("utf-8")).hexdigest()[:8]
+    repo = rootsmod.REPO if repo is None else os.path.realpath(repo)
+    tag = hashlib.sha256(repo.encode("utf-8")).hexdigest()[:8]
     return os.path.join(tools.cache_dir(), "browse-server-%s.json" % tag)
 
 
