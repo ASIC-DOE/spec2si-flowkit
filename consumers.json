@@ -33,6 +33,17 @@
    "node": "AIM Photonics silicon photonics (PIC)",
    "path": "C:\\dev\\spec2si-aim",
    "policy": "analog/specs/flow_policy.json"
+  },
+  {
+   "name": "seeqc-ads-pdk",
+   "node": "SeeQC QC20uA Rev12 (Nb superconducting SFQ)",
+   "path": "C:\\dev\\seeqc-ads-pdk",
+   "policy": "analog/specs/flow_policy.json",
+   "skip": {
+    "irdrop/": "Superconducting Nb lines carry DC without drop: the bias-network drop sits in the bias resistors and is computed by the port's own bias allocators, and irdrop/currents.py reads Spectre operating points while SFQ bias currents come from JoSIM. Re-open when a bias-network IR model needs the shared solver.",
+    "routekit/": "PTL routing runs through Innovus at a stripline non-default rule, audited by the port's own DEF check (scripts/ptl_pnr_assemble.py); the routekit card schema is a CMOS back-end stack. Re-open if PTL route audits move to a shared card.",
+    "housekeeping/": "The sweep walks ~/Documents/*/analog/work and CMOS tool-output patterns; this port keeps cluster work under ~/Documents/seeqc-ads-pdk/<flow> and manages simulation scratch with its own lease/archive/receipt lifecycle (docs/simulation-scratch-cleanup.md)."
+   }
   }
  ],
  "renamed": "ADR-0001: all five repos are spec2si-* as of 2026-08-24, LOCAL DIRECTORY AND GITHUB REMOTE alike -- AIML_ASIC -> spec2si-tsmc65, ONR_ADFT_ASIC -> spec2si-tsmc28, XT011_ASIC -> spec2si-xt011, SPEC2SI_FLOWKIT -> spec2si-flowkit, with spec2si-sky130 added under the convention. GitHub redirects the old names, so a stale clone keeps working; `git remote -v` should nonetheless read spec2si-* everywhere and disagreeing with this file is now DRIFT, not the expected state it was while the remotes lagged. Standing rule: record where a repo IS, never where it is going -- an intended path makes --check-all report MISSING on a healthy repo."
