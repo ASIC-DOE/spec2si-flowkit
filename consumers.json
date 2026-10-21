@@ -35,8 +35,8 @@
    "policy": "analog/specs/flow_policy.json"
   },
   {
-   "name": "seeqc-ads-pdk",
-   "node": "SeeQC QC20uA Rev12 (Nb superconducting SFQ)",
+   "name": "spec2si-seeqc",
+   "node": "SeeQC superconducting SFQ (Nb; QC20uA Rev12, other SeeQC variants in the same repo)",
    "path": "C:\\dev\\seeqc-ads-pdk",
    "policy": "analog/specs/flow_policy.json",
    "skip": {

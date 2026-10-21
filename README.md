@@ -28,6 +28,7 @@ diverging.
 | [`spec2si-xt011`](https://github.com/mandalsoumyajit/spec2si-xt011) | X-FAB XT011 PDSOI | Bring-up; blocks signed off (DRC density-only, LVS MATCH) |
 | [`spec2si-sky130`](https://github.com/mandalsoumyajit/spec2si-sky130) | SkyWater SKY130 | Bring-up; see its README for what is established |
 | [`spec2si-aim`](https://github.com/mandalsoumyajit/spec2si-aim) | AIM Photonics (silicon photonics) | Bring-up; a cluster-qualified photonic spec-to-score loop |
+| [`spec2si-seeqc`](https://github.com/mandalsoumyajit/spec2si-seeqc) | SeeQC superconducting SFQ (Nb, QC20uA; variants in one repo) | Bring-up; a routed xSFQ counter and 4-bit adder, DRC/LVS in KLayout, Calibre and ADS (research subset, not signoff) |
 
 A repository is scoped to a **process**, not to a design, because that is
 where the fork-forcing divergence actually falls — Calibre vs PVS/Pegasus,
