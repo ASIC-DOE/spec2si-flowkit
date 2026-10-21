@@ -177,7 +177,9 @@ activation and compare with condition A (the baseline's "after" section).
 
 - Write a decisions-first summary.
 - Move the dated tool and vendor tables to an appendix.
-- Write `docs/agent_memory_plan.md`, or remove the study's references to it.
+- ~~Write `docs/agent_memory_plan.md`, or remove the study's references to it.~~ Done
+  2026-10-21: the plan had been written on 2026-09-02 but never committed. It is now committed with
+  its phase-0 tools (`17414df`). Phase 0's manual classification and phases 1–3 remain.
 
 ### Smaller items found along the way
 

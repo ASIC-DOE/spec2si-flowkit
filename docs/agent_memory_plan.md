@@ -4,11 +4,21 @@ genre: plan
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-02
-summary: Feasibility, architecture and staged evaluation plan for reducing repeated agent errors across the five spec2si repositories without creating a monolithic stale prompt. Phase 0 uses a small auditable cross-repo sample and evidence packets to minimize human labeling.
+updated: 2026-10-21
+summary: Feasibility, architecture and staged evaluation plan for reducing repeated agent errors across the spec2si repositories without creating a monolithic stale prompt. Phase 0 uses a small auditable cross-repo sample and evidence packets to minimize human labeling. Written 2026-09-02, committed 2026-10-21; only the phase-0 tooling exists.
 -->
 
 # Agent memory
+
+> **Status (2026-10-21).** Written 2026-09-02 and kept untracked until it was committed on
+> 2026-10-21; the agentic-workflow status survey of 2026-09-24 therefore reported it missing.
+> - **Built:** the phase-0 tools, `runlog/phase0.py` and `knowledge/themes.py`, with tests. Each ran
+>   once on 2026-09-02, and their packets stay in the git-ignored `runlog/work/` and `knowledge/work/`.
+> - **Not done:** the manual classification that phase 0 asks for. On 2026-10-21 all 2,418 runlog
+>   attempts in tsmc65, tsmc28, xt011 and sky130 were still `unclassified`. Phases 1–3 have not
+>   started.
+> - **Dated:** the measurements below are from 2026-09-01/02. They cover four ports;
+>   spec2si-aim and seeqc-ads-pdk joined later, and the runlog counts have grown since.
 
 ## Decision
 

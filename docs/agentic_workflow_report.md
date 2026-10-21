@@ -53,7 +53,7 @@ If each failure has a known deterministic repair, a conventional repair script i
 
 ### 3.1 Inspection scope
 
-The inspected local HEADs were flowkit `8b9a34b`, tsmc65 `d563d9ec`, tsmc28 `81d8262`, XT011 `7bccadd`, and SKY130 `5c60969`. These are checkout identifiers, not frozen experiment manifests: working-tree changes were also present. In particular, the flowkit memory plan and `runlog/` and `knowledge/` work were locally available but untracked. They must not be treated as released dependencies.
+The inspected local HEADs were flowkit `8b9a34b`, tsmc65 `d563d9ec`, tsmc28 `81d8262`, XT011 `7bccadd`, and SKY130 `5c60969`. These are checkout identifiers, not frozen experiment manifests: working-tree changes were also present. In particular, the flowkit memory plan and `runlog/` and `knowledge/` work were locally available but untracked. They must not be treated as released dependencies. (Update 2026-10-21: all three are now committed, `17414df`; only the phase-0 tooling exists.)
 
 Private-port paths below are evidence locators for internal readers. This report does not reproduce PDK values, decks, layouts or private transcripts. It does not independently revalidate historical silicon or signoff claims.
 

@@ -31,7 +31,7 @@ rather than the study. Each entry names the evidence it rests on.
 | §9.2 bounded autonomous worker | **Done** 2026-09-26: **10 of 10** reviewed attempts (11 runs). 9 ready for review, each equivalent to its oracle or the real fix; 5 merged; 2 stops (a controller fault, and the expected design question); no false acceptance, no scope violation. Built along the way: tracked cluster gates, diagnosis contracts, fetched results, blind replays with a transcript audit, tree-only injected-fault bases | [worker/README.md](../worker/README.md); Claude $2.19 in total, Codex about 2.4M tokens, 8 licensed runs; coverage: 5 Codex runs, 4 diagnoses, tracked gates in tsmc28/xt011/sky130/tsmc65, 2 blind replays, 2 injected faults |
 | §9.3 DRC pilot with refusal handling | Deterministic part **exists** (`drcloop/`, tsmc65 `chip_patch.py --loop`); agent part not started | [DRC loop](drc_loop.md) |
 | §9.4 numeric and digital regression lanes | **Not started** | no Optuna or SymbiYosys use |
-| §6.5 memory | Session-log harvest **exists** (`browse/runlog.py`, 955 records across four repos); the memory plan it builds on is **missing** | `docs/agent_memory_plan.md` exists in no repository |
+| §6.5 memory | Session-log harvest **exists** (`browse/runlog.py`, 955 records across four repos); the memory plan it builds on is **missing** | `docs/agent_memory_plan.md` exists in no repository. **Correction 2026-10-21:** the plan existed, untracked, in the flowkit checkout (the study's §3.1 says so), and it is now committed (`17414df`) with its phase-0 tools; phases 1–3 have not started |
 | §5 vendor agent trials | **Not started** | — |
 
 ### Changes to shared code made during the tsmc65 activation (2026-09-24)
@@ -103,4 +103,5 @@ Both were corrected, and the corrected record was re-captured on the cluster.
    remote or has drifted from flowkit.
 5. **Put decisions first.** The study is 56 KB. The tool and vendor tables (§7)
    are a dated snapshot and could move to an appendix behind a one-page summary.
-6. **Fix or write the missing memory plan** that §3.1 and §6.5 cite.
+6. **Fix or write the missing memory plan** that §3.1 and §6.5 cite. *Done 2026-10-21:* it was
+   not missing but uncommitted, and is now committed as written (`17414df`), with a status note.
