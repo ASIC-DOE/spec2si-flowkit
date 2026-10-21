@@ -37,7 +37,7 @@
   {
    "name": "spec2si-seeqc",
    "node": "SeeQC superconducting SFQ (Nb; QC20uA Rev12, other SeeQC variants in the same repo)",
-   "path": "C:\\dev\\seeqc-ads-pdk",
+   "path": "C:\\dev\\spec2si-seeqc",
    "policy": "analog/specs/flow_policy.json",
    "skip": {
     "irdrop/": "Superconducting Nb lines carry DC without drop: the bias-network drop sits in the bias resistors and is computed by the port's own bias allocators, and irdrop/currents.py reads Spectre operating points while SFQ bias currents come from JoSIM. Re-open when a bias-network IR model needs the shared solver.",
