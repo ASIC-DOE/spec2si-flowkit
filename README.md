@@ -180,6 +180,7 @@ is the full one.
 | [`docs/em_ir_alignment.md`](docs/em_ir_alignment.md) | An operating-point-driven IR-drop calculator, and the EM/resistance misalignment across the ports it exposed |
 | [`docs/runlog_first_analysis.md`](docs/runlog_first_analysis.md) | The first pass over the agent-loop runlog: **6.25 offline iterations per cluster round trip** for analog work, and the finding that session transcripts are not durable (30-day retention), so the committed log is the only record past a month |
 | [`docs/agentic_workflow_report.md`](docs/agentic_workflow_report.md) | The agentic-workflow study the worker and the tracked jobs came out of |
+| [`docs/agent_memory_plan.md`](docs/agent_memory_plan.md) | A measured path to long- and short-term agent memory: structured lessons plus executable gates, a small verified restore manifest, and a bounded task-specific briefing; phase 0 starts from the existing runlogs with a small cross-repo sequential sample, not a labeling census |
 
 ## Licence
 

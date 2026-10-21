@@ -2,5 +2,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# Private local tracker rollout artifacts.
+# Local cross-repo runlog review packets. They contain internal design/cell
+# names and commit subjects from the private process ports; the phase-0 tool
+# regenerates them, and the public flowkit must never publish them.
+runlog/work/
+knowledge/work/
 integrations/cluster_jobs/work/
