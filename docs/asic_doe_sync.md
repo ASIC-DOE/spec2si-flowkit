@@ -21,15 +21,15 @@ distributes selected flowkit files into process-port repositories.
 
 Each source and destination has the same repository name.
 
-| Repository | Personal source | ASIC-DOE destination | Scheduled UTC times |
+| Repository | Personal source | ASIC-DOE destination | Daily fallback (UTC) |
 |---|---|---|---|
-| `spec2si-flowkit` | Public | Public fork | 00:07, 06:07, 12:07, 18:07 |
-| `spec2si-sky130` | Private | Internal standalone repository | 00:10, 06:10, 12:10, 18:10 |
-| `spec2si-tsmc28` | Private | Internal standalone repository | 00:13, 06:13, 12:13, 18:13 |
-| `spec2si-tsmc65` | Private | Internal standalone repository | 00:16, 06:16, 12:16, 18:16 |
-| `spec2si-xt011` | Private | Internal standalone repository | 00:19, 06:19, 12:19, 18:19 |
-| `spec2si-aim` | Private | Internal standalone repository | 00:22, 06:22, 12:22, 18:22 |
-| `spec2si-seeqc` | Private | Internal standalone repository | 00:25, 06:25, 12:25, 18:25 |
+| `spec2si-flowkit` | Public | Public fork | 00:07 |
+| `spec2si-sky130` | Private | Internal standalone repository | 00:10 |
+| `spec2si-tsmc28` | Private | Internal standalone repository | 00:13 |
+| `spec2si-tsmc65` | Private | Internal standalone repository | 00:16 |
+| `spec2si-xt011` | Private | Internal standalone repository | 00:19 |
+| `spec2si-aim` | Private | Internal standalone repository | 00:22 |
+| `spec2si-seeqc` | Private | Internal standalone repository | 00:25 |
 
 Internal means readable throughout the enterprise containing ASIC-DOE, not only
 by ASIC-DOE members. No BNLAIO mirrors are configured by this procedure.
@@ -57,7 +57,7 @@ require altering its uncommitted work to inspect the deployed configuration.
    and tag counts, a verification timestamp and the verified `main` commit.
 
 The workflow listens for push, create and delete events, supports manual
-dispatch, and reconciles every six hours. Older branches without the workflow
+dispatch, and reconciles daily. Older branches without the workflow
 file may not trigger a push run; the periodic run still includes their refs.
 GitHub can delay scheduled jobs, so the schedule is not a maximum-lag guarantee.
 Use manual dispatch when an organizational reader needs an immediate update.
