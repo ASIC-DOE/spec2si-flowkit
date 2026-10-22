@@ -4,8 +4,7 @@ Development and pull requests belong in `mandalsoumyajit/spec2si-flowkit`.
 `ASIC-DOE/spec2si-flowkit` is a one-way copy for readers.
 
 The **Sync ASIC-DOE mirror** Actions workflow copies all branches, tags and Git
-LFS objects. It runs on push/create/delete events, on manual dispatch, and every
-six hours at minute 7 UTC. GitHub can delay scheduled runs. Older branches
+LFS objects. It runs on push/create/delete events, on manual dispatch, and daily at 00:07 UTC. GitHub can delay scheduled runs. Older branches
 without this workflow file are covered by the scheduled reconciliation; use
 Actions → Sync ASIC-DOE mirror → Run workflow for an immediate update.
 
