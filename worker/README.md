@@ -225,6 +225,12 @@ Injected-fault scratch branches stay local (never pushed) so the frozen tasks
 can be re-run: `worker-fault/ota-tail-gate` in sky130 and
 `worker-fault/sdc-clock-name` in tsmc65.
 
+## The frozen-task study
+
+The 19 frozen contracts under `contracts/frozen*` were run under chat-driven and
+contract-driven execution (118 runs). Per-task results, and the reversal ledger
+the accompanying paper cites, are in [study_results.md](study_results.md).
+
 ## Limits
 
 - One worker, one repository, one task at a time.
