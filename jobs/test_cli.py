@@ -237,6 +237,44 @@ def test_only_reads_may_wander_between_hosts():
     check("run" not in hosts.READ_CALLS, "run is not a shared-store read")
 
 
+def test_calibrate_times_one_suite_on_free_hosts_only():
+    """`calibrate` launches the SAME command (with {host} filled in) on each
+    host as a `calibration` job targeted at the suite, and skips a host that
+    lacks the suite's threads -- a contended run would measure contention."""
+    states = [hosts.HostState("asic6", free=30.0, ncpu=32, load1=2.0),
+              hosts.HostState("asic8", free=4.0, ncpu=20, load1=16.0),
+              hosts.HostState("asic9", free=20.0, ncpu=20, load1=0.0),
+              hosts.HostState("asic1", why="UNKNOWN: unreachable")]
+    runs = []
+
+    class T(object):
+        def __init__(self, h):
+            self.h = h
+
+        def run(self, cmd, **kw):
+            runs.append((self.h, cmd, kw))
+            return remote.Result(remote.KNOWN, self.h, data={"jobid": "cal-%s" % self.h})
+    ns = cli.build_parser().parse_args(
+        ["calibrate", "--suite", "sp-mt14", "--threads", "14", "--progress", "spectre",
+         "--total", "13", "--progress-log", "b_{host}.log", "--", "spectre", "b_{host}.scs"])
+    cli._fill_globals(ns)
+    ns.cmd = ns.cmd[1:] if ns.cmd and ns.cmd[0] == "--" else ns.cmd
+    orig = hosts.survey
+    hosts.survey = lambda *a, **k: states
+    try:
+        rc = cli.cmd_calibrate(None, ns, make=T)
+    finally:
+        hosts.survey = orig
+    check(rc == 0, "rc 0 (%r)" % rc)
+    check([h for h, _c, _k in runs] == ["asic6", "asic9"],
+          "busy asic8 and unreachable asic1 skipped (%r)" % runs)
+    h, cmd, kw = runs[0]
+    check(cmd == ["spectre", "b_asic6.scs"], "{host} filled in (%r)" % cmd)
+    check(kw["flow"] == hosts.calib.CAL_FLOW and kw["target"] == "sp-mt14",
+          "a calibration job targeted at the suite (%r)" % kw)
+    check(kw["progress_log"] == "b_asic6.log" and kw["total"] == 13, "progress passed (%r)" % kw)
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     bad = 0

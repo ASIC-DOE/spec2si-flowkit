@@ -55,12 +55,16 @@ def fake(table):
 
 
 def with_fake(table, fn):
-    orig = hosts._probe_one
+    """Fake probes, and NO committed ledger: a test's speeds come only from
+    the calibration jobs it passes (the committed data has its own test)."""
+    orig, orig_led = hosts._probe_one, hosts.calib.LEDGER
     hosts._probe_one = fake(table)
+    hosts.calib.LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "no-such-ledger.json")
     try:
         return fn()
     finally:
-        hosts._probe_one = orig
+        hosts._probe_one, hosts.calib.LEDGER = orig, orig_led
 
 
 def test_pick_most_free():
@@ -126,20 +130,134 @@ def test_candidates_env_override_and_gpu_exclusion():
 
 
 def _job(host, flow, rate, state="done"):
+    """a PRODUCTION job: flow + its own-units rate (never a speed source)"""
     return {"host": host, "flow": flow, "state": state, "rate_per_s": rate}
 
 
-def test_speeds_from_measured_rate():
-    jobs = [_job("asic6", "enob", 0.289), _job("asic6", "enob", 0.143),
-            _job("asic10", "enob", 0.060),
-            _job("asic9", "calibre", 9.9)]        # other flow: ignored
-    sp = hosts.speeds(jobs, flow="enob")
-    check(set(sp) == {"asic6", "asic10"}, "only the flow's hosts (%r)" % sp)
-    check(sp["asic6"][1] == 2, "sample count kept")
-    check(sp["asic6"][0] > sp["asic10"][0], "faster host scores higher")
-    # normalized to the MEDIAN host, so 'no history' can sit at a neutral 1.0
-    check(abs(_med([v[0] for v in sp.values()]) - 1.0) < 0.51,
-          "normalized around 1.0 (%r)" % sp)
+def _cal(host, suite, elapsed, state="done"):
+    """a tracked CALIBRATION job: the suite timed on one host"""
+    return {"host": host, "flow": hosts.calib.CAL_FLOW, "target": suite,
+            "state": state, "elapsed_s": elapsed}
+
+
+def _cals(spec, suite="s1"):
+    """spec: host -> elapsed seconds (or a list of runs)"""
+    out = []
+    for h, e in spec.items():
+        for x in (e if isinstance(e, list) else [e]):
+            out.append(_cal(h, suite, x))
+    return out
+
+
+def test_speeds_from_calibration():
+    jobs = _cals({"asic6": 60, "asic8": 180, "asic9": 180})
+    sp = hosts.speeds(jobs, ledger=[])
+    check(set(sp) == {"asic6", "asic8", "asic9"}, "calibrated hosts (%r)" % sp)
+    check(abs(sp["asic6"][0] / sp["asic8"][0] - 3.0) < 1e-6, "speed = time ratio (%r)" % sp)
+    check(abs(sp["asic8"][0] - 1.0) < 1e-9, "the median host reads 1.0 (%r)" % sp)
+    check(sp["asic6"][1] == 1, "n counts suites")
+
+
+def test_calibration_ignores_unfinished_bad_and_production_jobs():
+    jobs = (_cals({"asic6": 60, "asic8": 180})
+            + [_cal("asic9", "s1", 5, "failed"), _cal("asic7", "s1", 0),
+               _job("asic9", "enob", 99.0)])
+    sp = hosts.speeds(jobs, ledger=[])
+    check(set(sp) == {"asic6", "asic8"},
+          "failed / zero-time / production jobs are not calibration (%r)" % sp)
+
+
+def test_production_rates_never_set_speed_the_2026_11_03_case():
+    """Production rates count each job's own units: on spectre-campaign asic8
+    (short campaigns) read 24x and asic9 (long ones) 0.08x -- two identical
+    Xeons -- and asic8 at 11.9x was picked over the 9950X3D for chip P&R.
+    Production jobs alone now give NO speed; calibration reads the Xeons alike."""
+    camp = ([_job("asic8", "spectre-campaign", r) for r in (2e-3, 0.15, 0.2, 0.3, 0.9)]
+            + [_job("asic9", "spectre-campaign", r) for r in (1.4e-4, 2e-4, 6e-4, 0.02, 0.04)]
+            + [_job("asic6", "spectre-campaign", r) for r in (3e-5, 1e-3, 3e-2, 0.3, 1.6)])
+    check(hosts.speeds(camp, ledger=[]) == {}, "production jobs alone: no speed")
+    # the evidence the old estimator used: per-host median rates differ ~100x
+    med = dict((h, sorted(j["rate_per_s"] for j in camp if j["host"] == h)[2])
+               for h in ("asic8", "asic9"))
+    check(med["asic8"] / med["asic9"] > 100, "the trap is real in this data (%r)" % med)
+    cal = _cals({"asic6": 55.7, "asic8": 187, "asic9": 181})
+    sp = hosts.speeds(camp + cal, ledger=[])
+    check(abs(sp["asic8"][0] / sp["asic9"][0] - 1.0) < 0.05,
+          "identical Xeons read alike (%r)" % sp)
+    table = {"asic6": {"ncpu": 32, "load1": 1.6, "cpu": RYZEN},
+             "asic8": {"ncpu": 20, "load1": 0.0, "cpu": XEON},
+             "asic9": {"ncpu": 20, "load1": 0.0, "cpu": XEON}}
+    host, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=camp + cal,
+                                                  flow="spectre-campaign", threads=16))
+    check(host == "asic6", "the fast box wins (got %r)" % host)
+    # NEGATIVE CONTROL: without calibration the pick falls to capacity (asic6
+    # still has the most free threads here), and a calibration that says asic8
+    # is fastest makes asic8 win -- the pick follows calibration, nothing else
+    rev = _cals({"asic6": 300, "asic8": 50, "asic9": 181})
+    host2, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=camp + rev, threads=16))
+    check(host2 == "asic8", "the pick follows the calibration (%r)" % host2)
+
+
+def test_fastest_run_per_host_and_suite():
+    """Contention only slows a run (asic6: 82.5 s loaded, 55.7 s clean)."""
+    jobs = _cals({"asic6": [82.5, 55.7], "asic8": 187, "asic9": 181})
+    sp = hosts.speeds(jobs, ledger=[])
+    check(abs(sp["asic6"][0] / sp["asic8"][0] - 187 / 55.7) < 1e-6,
+          "the fastest run is the host's (%r)" % sp)
+
+
+def test_two_way_fit_bridges_suites():
+    """Suites on different host sets share one scale through common hosts:
+    A times a, b; B times b, c -> c against a through b, exactly."""
+    jobs = _cals({"a": 100, "b": 200}, "A") + _cals({"b": 30, "c": 10}, "B")
+    sp = hosts.speeds(jobs, ledger=[])
+    check(abs(sp["a"][0] / sp["c"][0] - (200 / 100.0) / (30 / 10.0)) < 1e-9,
+          "a / c = (b/a in A) / (b/c in B) (%r)" % sp)
+    check(sp["b"][1] == 2, "b is in both suites")
+
+
+def test_a_suite_on_disjoint_hosts_is_not_on_the_scale():
+    jobs = _cals({"a": 100, "b": 200, "c": 150}, "A") + _cals({"x": 10, "y": 20}, "B")
+    sp = hosts.speeds(jobs, ledger=[])
+    check(set(sp) == {"a", "b", "c"}, "x / y share no host: unmeasured, not guessed (%r)" % sp)
+
+
+def test_single_host_suite_compares_nothing():
+    check(hosts.speeds(_cals({"a": 100}), ledger=[]) == {}, "one host: no comparison")
+
+
+def test_ledger_reads_runs_and_honours_excluded():
+    import json
+    import tempfile
+    doc = {"suites": [{"name": "L", "runs": [
+        {"host": "asic6", "elapsed_s": 20}, {"host": "asic2", "elapsed_s": 60},
+        {"host": "exxact", "elapsed_s": 5, "excluded": "under load"}]}]}
+    fd, p = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(fd, "w") as fh:
+        json.dump(doc, fh)
+    try:
+        recs = hosts.calib.load_ledger(p)
+    finally:
+        os.remove(p)
+    check(sorted(recs) == [("L", "asic2", 60.0), ("L", "asic6", 20.0)],
+          "excluded run left out (%r)" % recs)
+
+
+def test_committed_ledger():
+    """The committed measurements, held: identical W-2155s read alike, the
+    9950X3D far ahead, the E5-2450 (pmos) behind -- from Spectre AND JoSIM."""
+    recs = hosts.calib.load_ledger()
+    check({"spectre-ams_va_drift-aps-mt14", "josim-r10f1n-n-2a34306",
+           "josim-r10f1n-n-486bb3b"} <= set(s for s, _h, _e in recs), "the three suites")
+    check(not any(h == "exxact" for _s, h, _e in recs), "loaded exxact runs excluded")
+    sp = hosts.calib.fit(recs)
+    xeon = [sp[h][0] for h in ("asic1", "asic2", "asic8", "asic9")]
+    check(max(xeon) / min(xeon) < 1.15, "the W-2155s within 15 %% (%r)" % xeon)
+    check(sp["asic6"][0] > 2.5 * sp["asic8"][0], "asic6 > 2.5x asic8 (%r)" % sp)
+    check(sp["pmos"][0] < 0.75 * sp["asic8"][0], "pmos well behind (%r)" % sp)
+    for tool in ("spectre", "josim"):
+        sub = hosts.calib.fit([r for r in recs if r[0].startswith(tool)])
+        check(sub["asic6"][0] / sub["asic2"][0] > 2.5, "%s alone: asic6 > 2.5x asic2" % tool)
 
 
 def _med(xs):
@@ -148,44 +266,23 @@ def _med(xs):
         (xs[len(xs) // 2 - 1] + xs[len(xs) // 2]) / 2.0
 
 
-def test_speeds_ignores_unfinished_and_bad_rates():
-    jobs = [_job("asic6", "enob", 0.2), _job("asic6", "enob", 99.0, "killed"),
-            _job("asic7", "enob", 0), _job("asic8", "enob", None)]
-    sp = hosts.speeds(jobs, flow="enob")
-    check(set(sp) == {"asic6"},
-          "killed/zero/None rates excluded (%r)" % sp)
-
-
-def test_speeds_excludes_phase_records():
-    """A cal-phase rate is in cal sub-conversions/s, NOT conversions/s --
-    mixing the two units would silently corrupt the speed factor."""
-    cal = _job("asic9", "enob", 50.0)
-    cal["phase"] = "cal"
-    jobs = [_job("asic6", "enob", 0.2), cal]
-    sp = hosts.speeds(jobs, flow="enob")
-    check(set(sp) == {"asic6"}, "phase record excluded (%r)" % sp)
-
-
 def test_pick_prefers_measured_speed_over_free_capacity():
     """The real 2026-07-21 mistake: an idle SLOW box beat a busy FAST one."""
     table = {"asic6": {"ncpu": 32, "load1": 18.0},    # 14 free, fast
              "asic10": {"ncpu": 24, "load1": 0.0}}    # 24 free, slow
-    jobs = [_job("asic6", "enob", 0.289), _job("asic10", "enob", 0.060)]
-    host, states = with_fake(table, lambda: hosts.pick(
-        list(table), jobs=jobs, flow="enob"))
-    check(host == "asic6",
-          "measured-fast beats idle-slow (got %r)" % host)
-    # without history the capacity ranking stands
+    jobs = _cals({"asic6": 60, "asic10": 150})
+    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs))
+    check(host == "asic6", "calibrated-fast beats idle-slow (got %r)" % host)
+    # without calibration the capacity ranking stands
     host2, _ = with_fake(table, lambda: hosts.pick(list(table)))
-    check(host2 == "asic10", "no history -> capacity ranking (%r)" % host2)
+    check(host2 == "asic10", "no calibration -> capacity ranking (%r)" % host2)
 
 
 def test_speed_never_overrides_the_capacity_gate():
     table = {"asic6": {"ncpu": 16, "load1": 15.0},    # 1 free -- too full
              "asic9": {"ncpu": 20, "load1": 0.0}}
-    jobs = [_job("asic6", "enob", 9.9), _job("asic9", "enob", 0.1)]
-    host, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                  flow="enob"))
+    jobs = _cals({"asic6": 10, "asic9": 200})
+    host, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs))
     check(host == "asic9",
           "a full host is not picked however fast it is (%r)" % host)
 
@@ -195,13 +292,11 @@ def test_unmeasured_host_is_neutral_not_slow():
     and loses to a measurably FAST one -- it is never assumed bad."""
     table = {"asic10": {"ncpu": 24, "load1": 0.0},
              "asic9": {"ncpu": 20, "load1": 0.0}}
-    slow = [_job("asic10", "enob", 0.05), _job("asic2", "enob", 0.5)]
-    host, _ = with_fake(table, lambda: hosts.pick(["asic10", "asic9"],
-                                                  jobs=slow, flow="enob"))
+    slow = _cals({"asic10": 400, "asic2": 100, "asic3": 100})
+    host, _ = with_fake(table, lambda: hosts.pick(["asic10", "asic9"], jobs=slow))
     check(host == "asic9", "unmeasured beats measurably-slow (%r)" % host)
-    fast = [_job("asic10", "enob", 5.0), _job("asic2", "enob", 0.5)]
-    host2, _ = with_fake(table, lambda: hosts.pick(["asic10", "asic9"],
-                                                   jobs=fast, flow="enob"))
+    fast = _cals({"asic10": 25, "asic2": 100, "asic3": 100})
+    host2, _ = with_fake(table, lambda: hosts.pick(["asic10", "asic9"], jobs=fast))
     check(host2 == "asic10", "measurably-fast beats unmeasured (%r)" % host2)
 
 
@@ -211,10 +306,9 @@ def test_speed_host_match_is_case_insensitive():
     produced -- silently, as a missing SPEED rather than an error."""
     table = {"pmos": {"ncpu": 32, "load1": 0.0},
              "asic9": {"ncpu": 20, "load1": 0.0}}
-    jobs = [_job("PMOS", "enob", 5.0), _job("asic9", "enob", 0.5)]
-    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                       flow="enob"))
-    check(host == "pmos", "PMOS sample matched to pmos (got %r)" % host)
+    jobs = _cals({"PMOS": 20, "asic9": 200})
+    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs))
+    check(host == "pmos", "PMOS calibration matched to pmos (got %r)" % host)
     st = [s for s in states if s.host == "pmos"][0]
     check(st.speed is not None and st.nsamp == 1,
           "speed attached despite case mismatch (%r)" % st)
@@ -233,66 +327,43 @@ RYZEN = "AMD Ryzen 9 9950X3D 16-Core Processor"
 XEON = "Intel(R) Xeon(R) W-2155 CPU @ 3.30GHz"
 
 
-def _jobs(spec, flow="enob"):
-    """spec: host -> list of rates"""
-    return [_job(h, flow, r) for h, rs in spec.items() for r in rs]
-
-
-def test_pool_by_cpu_the_2026_10_01_case():
-    """asic8 idle with ONE job at a neutral 1.00x, asic7 -- the same Xeon --
-    with five at 0.29x, asic6 (9950X3D) partly loaded and measurably fast.
-    Per-host speed sent the 16-thread run to asic8; pooled by CPU model the
-    Xeon reads ~0.36x and the Ryzen wins."""
+def test_uncalibrated_host_borrows_its_cpu_model():
+    """asic8 has no calibration; asic7 -- the same Xeon -- has one: asic8
+    takes the Xeon's speed rather than a neutral 1.0, and the 9950X3D wins."""
     table = {"asic6": {"ncpu": 32, "load1": 16.5, "cpu": RYZEN},
              "asic7": {"ncpu": 20, "load1": 3.1, "cpu": XEON},
              "asic8": {"ncpu": 20, "load1": 0.1, "cpu": XEON}}
-    # rates chosen so the per-host medians normalize to ~2.4 / 0.29 / 1.0
-    jobs = _jobs({"asic6": [2.4] * 18, "asic7": [0.29] * 5, "asic8": [1.0]})
-    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                       flow="enob", threads=16))
+    jobs = _cals({"asic6": 60, "asic7": 200, "asic2": 190})
+    host, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs, threads=16))
     st = dict((s.host, s) for s in states)
-    check(st["asic8"].speed_src == "cpu" and st["asic8"].nsamp == 6,
-          "thin asic8 pooled with asic7 (%r)" % st["asic8"])
-    check(st["asic8"].speed < 0.5, "pooled Xeon speed is slow (%r)" % st["asic8"].speed)
-    check(st["asic6"].speed_src == "host", "asic6 keeps its own 18 samples")
+    check(st["asic8"].speed_src == "cpu" and st["asic8"].speed < 1.0,
+          "uncalibrated asic8 borrows the Xeon's speed (%r)" % st["asic8"])
+    check(st["asic7"].speed_src == "cal", "asic7 keeps its own calibration")
     check(host == "asic6", "the fast box wins (got %r)" % host)
-    # NEGATIVE CONTROL: without CPU models nothing pools -> asic8 at 1.0
-    # still loses to asic6 on speed... so make asic6 busier, where the
-    # pooled answer and the per-host answer must DIFFER.
-    table2 = dict(table)
-    table2["asic6"] = {"ncpu": 32, "load1": 26.0, "cpu": RYZEN}      # 6 free
-    host2, _ = with_fake(table2, lambda: hosts.pick(list(table2), jobs=jobs,
-                                                    flow="enob", threads=16))
-    blind = dict((h, dict(d, cpu=None)) for h, d in table2.items())
-    host3, st3 = with_fake(blind, lambda: hosts.pick(list(blind), jobs=jobs,
-                                                     flow="enob", threads=16))
+    # NEGATIVE CONTROL: without CPU models nothing pools -> asic8 unmeasured
+    blind = dict((h, dict(d, cpu=None)) for h, d in table.items())
+    _, st3 = with_fake(blind, lambda: hosts.pick(list(blind), jobs=jobs, threads=16))
     st3 = dict((s.host, s) for s in st3)
-    check(st3["asic8"].speed_src == "host" and st3["asic8"].nsamp == 1,
-          "no CPU model -> no pooling (%r)" % st3["asic8"])
-    check(host3 == "asic8" and host2 == "asic6",
-          "pooling changes the answer: blind %r, pooled %r" % (host3, host2))
+    check(st3["asic8"].speed is None, "no CPU model -> no pooling (%r)" % st3["asic8"])
 
 
 def test_pool_never_crosses_cpu_models():
     table = {"asic9": {"ncpu": 20, "load1": 0.0, "cpu": XEON},
              "asic6": {"ncpu": 32, "load1": 0.0, "cpu": RYZEN}}
-    jobs = _jobs({"asic9": [1.0], "asic6": [2.0] * 10, "asic2": [1.0]})
-    _, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                    flow="enob"))
+    jobs = _cals({"asic6": 60, "asic2": 180})
+    _, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs))
     st = dict((s.host, s) for s in states)
-    check(st["asic9"].speed_src == "host" and st["asic9"].nsamp == 1,
-          "a thin Xeon does not borrow the Ryzen's speed (%r)" % st["asic9"])
+    check(st["asic9"].speed is None,
+          "an uncalibrated Xeon does not borrow the Ryzen's speed (%r)" % st["asic9"])
 
 
 def test_threads_weigh_room_against_speed():
     """A fast host with too few free threads for the job is not a free pass."""
     table = {"asic6": {"ncpu": 32, "load1": 25.0, "cpu": RYZEN},     # 7 free
              "asic10": {"ncpu": 24, "load1": 0.0, "cpu": "X"}}        # 24 free
-    jobs = _jobs({"asic6": [1.1] * 5, "asic10": [1.0] * 5, "asic2": [1.0]})
-    h_speed, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                     flow="enob"))
-    h_thr, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs,
-                                                        flow="enob", threads=16))
+    jobs = _cals({"asic6": 100, "asic10": 110, "asic2": 110})
+    h_speed, _ = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs))
+    h_thr, states = with_fake(table, lambda: hosts.pick(list(table), jobs=jobs, threads=16))
     check(h_speed == "asic6", "speed-only ranking takes the faster box")
     check(h_thr == "asic10", "16 threads into 7 free loses to an idle peer (%r)" % h_thr)
     st = dict((s.host, s) for s in states)
@@ -301,22 +372,6 @@ def test_threads_weigh_room_against_speed():
     check("WALLx" in lines[0], "wall-time ratio column with --threads")
     check(any(ln.startswith("asic10") and " 1.00 " in ln for ln in lines),
           "the best host reads 1.00 (%r)" % lines)
-
-
-def test_flow_none_normalizes_each_flow_first():
-    """Raw rates of different flows are different units: asic9 ran calibre
-    (rules/s, large numbers) as well as enob, asic6 only enob. Pooling raw
-    rates called asic9 the fast one; per-flow it is the slow one."""
-    jobs = (_jobs({"asic6": [0.3, 0.3], "asic9": [0.1, 0.1]}, "enob")
-            + _jobs({"asic9": [10.0, 12.0]}, "calibre"))
-    sp = hosts.speeds(jobs)                      # flow=None
-    check(sp["asic6"][0] > sp["asic9"][0],
-          "per-flow combination: asic6 faster (%r)" % sp)
-    check("asic9" in sp and sp["asic9"][1] == 2,
-          "a flow seen on one host only adds no samples (%r)" % sp)
-    # the per-flow path is unchanged
-    check(hosts.speeds(jobs, flow="calibre") == {"asic9": (1.0, 2)},
-          "single-flow speeds unchanged")
 
 
 def test_cpu_short_names():

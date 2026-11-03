@@ -278,6 +278,8 @@ FILES = [
     ("jobs/__main__.py", "deployment/bnl/jobs/__main__.py"),
     ("jobs/cli.py", "deployment/bnl/jobs/cli.py"),
     ("jobs/hosts.py", "deployment/bnl/jobs/hosts.py"),
+    ("jobs/calib.py", "deployment/bnl/jobs/calib.py"),
+    ("jobs/calibration_ledger.json", "deployment/bnl/jobs/calibration_ledger.json"),
     ("jobs/procscan.py", "deployment/bnl/jobs/procscan.py"),
     ("jobs/remote.py", "deployment/bnl/jobs/remote.py"),
     ("jobs/workflow.py", "deployment/bnl/jobs/workflow.py"),
