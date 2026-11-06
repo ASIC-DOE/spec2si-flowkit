@@ -4,8 +4,8 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-10-22
-summary: Source and destination mapping, synchronization triggers, manual Actions commands, independent ref verification, drift recovery and deploy-key maintenance for the seven spec2si repositories. Personal repositories remain the development sources; ASIC-DOE holds reader copies.
+updated: 2026-11-06
+summary: Source and destination mapping, synchronization triggers, manual Actions commands, independent ref verification, drift recovery and deploy-key maintenance for the eight spec2si repositories. Personal repositories remain the development sources; ASIC-DOE holds reader copies.
 -->
 
 # Operating the ASIC-DOE repository mirrors
@@ -30,6 +30,7 @@ Each source and destination has the same repository name.
 | `spec2si-xt011` | Private | Internal standalone repository | 00:19 |
 | `spec2si-aim` | Private | Internal standalone repository | 00:22 |
 | `spec2si-seeqc` | Private | Internal standalone repository | 00:25 |
+| `spec2si-rhbd` | Private | Internal standalone repository | 00:28 |
 
 Internal means readable throughout the enterprise containing ASIC-DOE, not only
 by ASIC-DOE members. No BNLAIO mirrors are configured by this procedure.
@@ -197,9 +198,9 @@ Deploy keys do not expire automatically. Revoke a destination key and remove its
 matching source secret when retiring synchronization. Removing a person's
 organization membership alone does not revoke deploy keys.
 
-The workflow and script are currently copied into all seven personal repositories;
+The workflow and script are currently copied into all eight personal repositories;
 they are not distributed by the root flowkit `sync.py`. When changing this
-mechanism, test the change, update all seven copies while preserving each source
+mechanism, test the change, update all eight copies while preserving each source
 guard, destination and schedule, and verify a successful run for every repository.
 Update this guide and the per-repository `.github/SYNC.md` notes if behavior changes.
 
