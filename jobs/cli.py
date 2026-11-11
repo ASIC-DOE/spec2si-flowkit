@@ -435,7 +435,7 @@ def build_parser():
                         help="survey candidate hosts by free capacity")
     hp.add_argument("--min-free", type=float, default=hosts.MIN_FREE)
     hp.add_argument("--flow", default=None,
-                    help="weight by measured speed on this flow (e.g. enob)")
+                    help="recorded with the survey; speed is calibrated, not per flow")
     hp.add_argument("--threads", type=int, default=None,
                     help="the job's thread count (spectre +mt=N): rank by "
                          "speed x min(1, free/N) and show the expected wall-time ratio")
@@ -462,6 +462,24 @@ def build_parser():
                         help="block until job(s) finish; no id waits for any")
     wt.add_argument("jobid", nargs="*")
     wt.add_argument("--interval", type=float, default=5.0)
+
+    c = sub.add_parser("calibrate", parents=[g],
+                       help="time ONE suite (the same work) on each host, as tracked "
+                            "`calibration` jobs the host picker fits")
+    c.add_argument("--suite", required=True,
+                   help="the work's name: same input, tool build, options, threads")
+    c.add_argument("--hosts", nargs="+", default=None,
+                   help="hosts to time (default: the candidates)")
+    c.add_argument("--threads", type=int, default=None,
+                   help="the suite's thread count: a host with fewer free is skipped")
+    c.add_argument("--progress", default=None)
+    c.add_argument("--total", type=int, default=None)
+    c.add_argument("--progress-log", default=None,
+                   help="per-host log ({host} is replaced)")
+    c.add_argument("--dry-run", action="store_true",
+                   help="survey and print the launches, start nothing")
+    c.add_argument("cmd", nargs=argparse.REMAINDER,
+                   help="-- CMD ... ({host} is replaced by each host's name)")
 
     r = sub.add_parser("run", parents=[g],
                        help="launch a detached, self-reporting job")
@@ -517,9 +535,11 @@ def cmd_hosts(t, ns):
     out = sys.stderr if getattr(ns, "pick", False) else sys.stdout
     for ln in hosts.format_table(states, threads=threads):
         print(ln, file=out)
-    print("(SPEED = measured relative throughput %s; FROM host = its own jobs, "
-          "cpu = pooled over hosts with the same CPU model)"
-          % ("on flow '%s'" % ns.flow if ns.flow else "per flow, combined"), file=out)
+    sui = hosts.calib.suites(jobs)
+    print("(SPEED = calibrated: the same work timed on each host, relative to the median host; "
+          "FROM cal = its own calibration, cpu = its CPU model's; %d suite(s): %s)"
+          % (len(sui), ", ".join("%s [%d hosts]" % (s, len(h)) for s, h in sorted(sui.items()))),
+          file=out)
     if threads:
         print("(WALLx = expected wall time vs the best host for a %d-thread job)"
               % threads, file=out)
@@ -531,8 +551,48 @@ def cmd_hosts(t, ns):
     return 0 if host else 3
 
 
+def cmd_calibrate(t, ns, make=None):
+    """Launch ONE suite on each host as a tracked `calibration` job (target =
+    the suite); `hosts` fits the finished ones (calib.py). A host without the
+    suite's threads free is SKIPPED, not timed: a contended run measures the
+    contention. {host} in the command (and --progress-log) is replaced by the
+    host's name, so per-host outputs do not collide."""
+    if not ns.cmd:
+        print("jobs calibrate: empty command (put it after `--`)", file=sys.stderr)
+        return 2
+    need = float(ns.threads) if ns.threads else hosts.MIN_FREE
+    states = hosts.survey(ns.hosts or None, timeout=ns.timeout, mode=ns.mode)
+    make = make or (lambda h: remote.Transport(host=h, mode=ns.mode, timeout=ns.timeout))
+    launched, bad = [], 0
+    for s in states:
+        if s.free is None:
+            print("  %-10s skipped: unknown (%s)" % (s.host, s.why), file=sys.stderr)
+            continue
+        if s.free < need:
+            print("  %-10s skipped: %.1f threads free, the suite needs %.0f"
+                  % (s.host, s.free, need), file=sys.stderr)
+            continue
+        cmd = [a.replace("{host}", s.host) for a in ns.cmd]
+        plog = ns.progress_log.replace("{host}", s.host) if ns.progress_log else None
+        if ns.dry_run:
+            print("  %-10s would run: %s" % (s.host, " ".join(cmd)), file=sys.stderr)
+            continue
+        r = make(s.host).run(cmd, flow=hosts.calib.CAL_FLOW, target=ns.suite,
+                             progress=ns.progress, total=ns.total, progress_log=plog)
+        if not r.ok:
+            bad += 1
+            print("  %-10s launch failed: %s -- %s" % (s.host, r.status, r.reason), file=sys.stderr)
+            continue
+        jid = (r.data or {}).get("jobid", "?")
+        launched.append(jid)
+        print("  %-10s %s" % (s.host, jid), file=sys.stderr)
+        print(jid)
+    print("calibrate %s: %d launched, %d failed" % (ns.suite, len(launched), bad), file=sys.stderr)
+    return 4 if bad else 0
+
+
 def _resolve_host(ns):
-    """'auto' -> the best host by measured speed, gated on free capacity.
+    """'auto' -> the best host by calibrated speed, gated on free capacity.
     Only ever used when asked for explicitly; a silent change of WHERE work
     lands would be a nasty surprise for an operator who typed a host on
     purpose."""
@@ -553,7 +613,7 @@ def _resolve_host(ns):
         return 4
     best = [s for s in states if s.host == host][0]
     sp = ("" if best.speed is None
-          else ", %.2fx speed on '%s' (n=%d)" % (best.speed, flow, best.nsamp))
+          else ", %.2fx calibrated speed (%s, n=%d)" % (best.speed, best.speed_src, best.nsamp))
     print("jobs: --host auto -> %s (%.0f threads, load %.2f, %.1f free%s)"
           % (host, best.ncpu, best.load1, best.free, sp), file=sys.stderr)
     ns.host = host
@@ -613,7 +673,7 @@ def main(argv=None):
         t = make(ns.host)
     dispatch = {"ls": cmd_ls, "top": cmd_top, "watch": cmd_watch,
                 "run": cmd_run, "why": cmd_why, "verify": cmd_verify,
-                "wait": cmd_wait, "hosts": cmd_hosts}
+                "wait": cmd_wait, "hosts": cmd_hosts, "calibrate": cmd_calibrate}
     try:
         return dispatch[ns.action](t, ns)
     except KeyboardInterrupt:

@@ -14,15 +14,15 @@ Ranking is `free = ncpu - load1`, not load alone -- load 4 is idle on a
 back KNOWN is never a candidate: an unreachable host is unknown, not empty
 (remote.py invariants 5 and 7).
 
-Speed per core is deliberately NOT a table. It would need a benchmark to
-stay honest, and a hardcoded speed table is exactly the kind of constant
-that rots silently; CANDIDATES order is used only to break ties. Speed comes
-from MEASURED finished jobs (`speeds`), and since 2026-10-01 a host with too
-little history of its own borrows the measurement of hosts with the SAME CPU
-MODEL, which the probe reports (`pool_by_cpu`): on that day an idle Xeon
-W-2155 (asic8, one sample at a neutral 1.00x) was chosen over the 9950X3D
-for a 16-thread spectre run that then took ~2x as long, while asic7 -- the
-same Xeon -- already had five samples at 0.29x.
+Speed is MEASURED on identical work: calibration timings (calib.py -- a
+committed ledger of cited runs plus tracked `calibration` jobs from `jobs
+calibrate`), fitted as log t(suite, host) = a(suite) - s(host). Until
+2026-11-03 it came from production jobs' rates, which count each job's own
+units, so it measured which jobs a host was given: two identical Xeon
+W-2155s read 24x and 0.08x on spectre-campaign, and asic8 (11.9x) was picked
+over the 9950X3D for chip P&R. A host with no calibration of its own
+borrows the measurement of hosts with the SAME CPU MODEL, which the probe
+reports (`pool_by_cpu`); CANDIDATES order only breaks ties.
 
 `--threads N` scores the job's own demand: speed x min(1, free/N), so a fast
 host with part of the threads free is weighed against an idle slow one
@@ -32,8 +32,10 @@ import os
 
 try:
     from . import remote                     # package import
+    from . import calib
 except ImportError:                          # direct-script fallback
     import remote
+    import calib
 
 #: Spectre/Calibre-capable hosts, fastest-per-core first (TIE-BREAK ONLY).
 #: exxact and dgx-spark are deliberately ABSENT: they are Ubuntu GPU boxes
@@ -155,49 +157,16 @@ def _median(xs):
     return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
 
 
-def speeds(jobs, flow=None):
-    """host -> (relative_speed, n_samples), measured from finished jobs.
+def speeds(jobs=None, flow=None, ledger=None):
+    """host -> (relative_speed, n_suites), from CALIBRATION (calib.py): the
+    committed ledger plus the tracked `calibration` jobs in `jobs`. 1.0 is
+    the median calibrated host, so a host with no measurement can sit at a
+    neutral 1.0 rather than being scored as if it were slow.
 
-    `rate_per_s` is the job's own MEASURED throughput (done/elapsed in the
-    tool's own units), so for a given flow it compares hosts directly on
-    real work -- no synthetic benchmark, no hardcoded speed table to rot.
-    Normalized to the MEDIAN host, so >1 is faster than typical and <1
-    slower, and a host with no history can sit at a neutral 1.0 rather than
-    being scored as if it were slow.
-
-    $JOBS is shared NFS, so one `list` from any host carries every host's
-    history -- this costs no extra round trips.
-
-    Restricted to one flow because rate is in tool units: an enob
-    conversions/s means nothing next to a calibre rules/s. With `flow=None`
-    each flow is normalized ON ITS OWN and the per-flow factors are combined
-    (`_combine_flows`); until 2026-10-01 `flow=None` pooled the raw rates of
-    every flow, so a host's "speed" was mostly which flows it happened to run.
-    """
-    if flow is None:
-        return _combine_flows(jobs)
-    by_host = {}
-    for j in jobs:
-        if flow and j.get("flow") != flow:
-            continue
-        if j.get("state") != "done":
-            continue                     # killed/failed rates are truncated
-        if j.get("phase"):
-            # a phase record counts a DIFFERENT unit (cal sub-conversions,
-            # not conversions), so its rate is not comparable with the rest
-            # -- averaging the two would silently corrupt the factor.
-            continue
-        r, h = j.get("rate_per_s"), j.get("host")
-        if not h or not isinstance(r, (int, float)) or r <= 0:
-            continue
-        by_host.setdefault(h, []).append(float(r))
-    if not by_host:
-        return {}
-    meds = {h: _median(v) for h, v in by_host.items()}
-    ref = _median(list(meds.values()))
-    if ref <= 0:
-        return {}
-    return {h: (m / ref, len(by_host[h])) for h, m in meds.items()}
+    `flow` is accepted and ignored: a production flow's rates count its own
+    units and cannot compare hosts (calib.py's header has the measurement).
+    `ledger` overrides the committed ledger ([] = tracked jobs only)."""
+    return calib.speeds(jobs, ledger=ledger)
 
 
 #: The last survey, one per USER, for the session hooks of every spec2si repo
@@ -259,42 +228,20 @@ def job_history(hosts=None, mode=None, timeout=30.0, tries=2):
     return (res.data or {}).get("jobs", []) or []
 
 
-def _combine_flows(jobs):
-    """host -> (speed, n): every flow normalized on its own (`speeds(flow=f)`)
-    and the factors combined as an n-weighted GEOMETRIC mean -- a ratio is
-    multiplicative, and an arithmetic mean of 0.25x and 4x would read 2.1x
-    for a host that is typical on average. A flow measured on one host only
-    says nothing about relative speed (its factor is 1.0 by construction)
-    and is left out."""
-    import math
-    flows = sorted(set(j.get("flow") for j in jobs if j.get("flow")))
-    acc = {}
-    for f in flows:
-        sp = speeds(jobs, flow=f)
-        if len(sp) < 2:
-            continue
-        for h, (v, n) in sp.items():
-            a = acc.setdefault(h, [0.0, 0])
-            a[0] += n * math.log(v)
-            a[1] += n
-    return {h: (math.exp(lw / n), n) for h, (lw, n) in acc.items() if n}
-
-
-#: Below this many finished jobs of its own, a host borrows the pooled speed
-#: of every host with the same CPU model (its own samples included).
-MIN_OWN_SAMPLES = 3
+#: A host with fewer calibrated suites than this borrows the pooled speed of
+#: every host with the same CPU model. One suite is a measurement of the host
+#: itself (the fit already takes its fastest run), so only an uncalibrated host
+#: borrows.
+MIN_OWN_SAMPLES = 1
 
 
 def pool_by_cpu(states, min_own=MIN_OWN_SAMPLES):
-    """Fill thin speed estimates from identical machines, in place.
+    """Fill missing speeds from identical machines, in place.
 
-    A host's measured speed is noise until it has a few samples: on
-    2026-10-01 asic8 sat at a neutral 1.00x on ONE job while asic7, the same
-    Xeon W-2155, had five at 0.29x. Hosts are grouped by the CPU model their
-    probe reported; a host with fewer than `min_own` samples takes the
-    n-weighted geometric mean over its group when the group knows more than
-    it does. A host with no CPU model (an older reader) is never pooled --
-    two blanks are not evidence of the same machine.
+    Hosts are grouped by the CPU model their probe reported; a host with
+    fewer than `min_own` calibrated suites takes the suite-weighted geometric
+    mean over its group. A host with no CPU model (an older reader) is never
+    pooled -- two blanks are not evidence of the same machine.
     """
     import math
     groups = {}
@@ -305,7 +252,7 @@ def pool_by_cpu(states, min_own=MIN_OWN_SAMPLES):
             g[1] += s.nsamp
     for s in states:
         if s.speed is not None:
-            s.speed_src = "host"
+            s.speed_src = "cal"
         if not s.cpu or s.cpu not in groups:
             continue
         lw, n = groups[s.cpu]
@@ -315,19 +262,19 @@ def pool_by_cpu(states, min_own=MIN_OWN_SAMPLES):
 
 
 def pick(hosts=None, min_free=MIN_FREE, timeout=12.0, mode=None,
-         jobs=None, flow=None, threads=None):
+         jobs=None, flow=None, threads=None, ledger=None):
     """(host, states) -- the best host with at least `min_free` threads, or
     (None, states) when none qualifies. Never silently falls back to a busy
     host.
 
-    With `jobs` (a job list) the ranking is by MEASURED relative speed, not
-    free capacity: on 2026-07-21 capacity-only ranking sent a run to an idle
-    Xeon W-2265 over a partly-loaded Ryzen 9950X3D and it ran 3-5x slower --
-    free threads say how much room there is, not how fast the work will go.
-    Capacity remains a hard gate and the tie-break; hosts with no history
-    score a neutral 1.0, so an unmeasured host still beats a measurably slow
-    one and loses to a measurably fast one. Thin histories are pooled across
-    hosts with the same CPU model (`pool_by_cpu`).
+    The ranking is by CALIBRATED relative speed (`speeds`: the ledger plus
+    any tracked calibration jobs in `jobs`), not free capacity: on 2026-07-21
+    capacity-only ranking sent a run to an idle Xeon W-2265 over a partly-
+    loaded Ryzen 9950X3D and it ran 3-5x slower -- free threads say how much
+    room there is, not how fast the work will go. Capacity remains a hard
+    gate and the tie-break; an uncalibrated host borrows its CPU model's speed
+    (`pool_by_cpu`) or scores a neutral 1.0. `flow` is recorded by callers and
+    does not affect speed; `ledger=[]` ranks on tracked calibration jobs only.
 
     With `threads` (the job's own thread count, e.g. spectre +mt=16) the
     ranking is by `score = speed x min(1, free / threads)`: the throughput the
@@ -336,15 +283,14 @@ def pick(hosts=None, min_free=MIN_FREE, timeout=12.0, mode=None,
     passed by the fixed MIN_FREE gate as if room did not matter.
     """
     states = survey(hosts, timeout=timeout, mode=mode)
-    if jobs:
-        # case-insensitive: the ssh alias is `pmos` but that box's own
-        # `hostname -s` answers PMOS, so meta.json records PMOS and an
-        # exact match silently dropped every sample it ever produced.
-        sp = {k.lower(): v for k, v in speeds(jobs, flow=flow).items()}
-        for s in states:
-            if s.host.lower() in sp:
-                s.speed, s.nsamp = sp[s.host.lower()]
-        pool_by_cpu(states)
+    # case-insensitive: the ssh alias is `pmos` but that box's own
+    # `hostname -s` answers PMOS, so meta.json records PMOS and an
+    # exact match silently dropped every sample it ever produced.
+    sp = {k.lower(): v for k, v in speeds(jobs, ledger=ledger).items()}
+    for s in states:
+        if s.host.lower() in sp:
+            s.speed, s.nsamp = sp[s.host.lower()]
+    pool_by_cpu(states)
     for s in states:
         if s.free is not None and threads:
             sp1 = s.speed if s.speed is not None else 1.0

@@ -4,8 +4,8 @@ genre: guide
 status: active
 area: top
 owner: soumyajit
-updated: 2026-09-03
-summary: Source and destination mapping, synchronization triggers, manual Actions commands, independent ref verification, drift recovery and deploy-key maintenance for the five spec2si repositories. Personal repositories remain the development sources; ASIC-DOE holds reader copies.
+updated: 2026-11-06
+summary: Source and destination mapping, synchronization triggers, manual Actions commands, independent ref verification, drift recovery and deploy-key maintenance for the eight spec2si repositories. Personal repositories remain the development sources; ASIC-DOE holds reader copies.
 -->
 
 # Operating the ASIC-DOE repository mirrors
@@ -21,13 +21,16 @@ distributes selected flowkit files into process-port repositories.
 
 Each source and destination has the same repository name.
 
-| Repository | Personal source | ASIC-DOE destination | Scheduled UTC times |
+| Repository | Personal source | ASIC-DOE destination | Daily fallback (UTC) |
 |---|---|---|---|
-| `spec2si-flowkit` | Public | Public fork | 00:07, 06:07, 12:07, 18:07 |
-| `spec2si-sky130` | Private | Internal standalone repository | 00:10, 06:10, 12:10, 18:10 |
-| `spec2si-tsmc28` | Private | Internal standalone repository | 00:13, 06:13, 12:13, 18:13 |
-| `spec2si-tsmc65` | Private | Internal standalone repository | 00:16, 06:16, 12:16, 18:16 |
-| `spec2si-xt011` | Private | Internal standalone repository | 00:19, 06:19, 12:19, 18:19 |
+| `spec2si-flowkit` | Public | Public fork | 00:07 |
+| `spec2si-sky130` | Private | Internal standalone repository | 00:10 |
+| `spec2si-tsmc28` | Private | Internal standalone repository | 00:13 |
+| `spec2si-tsmc65` | Private | Internal standalone repository | 00:16 |
+| `spec2si-xt011` | Private | Internal standalone repository | 00:19 |
+| `spec2si-aim` | Private | Internal standalone repository | 00:22 |
+| `spec2si-seeqc` | Private | Internal standalone repository | 00:25 |
+| `spec2si-rhbd` | Private | Internal standalone repository | 00:28 |
 
 Internal means readable throughout the enterprise containing ASIC-DOE, not only
 by ASIC-DOE members. No BNLAIO mirrors are configured by this procedure.
@@ -55,7 +58,7 @@ require altering its uncommitted work to inspect the deployed configuration.
    and tag counts, a verification timestamp and the verified `main` commit.
 
 The workflow listens for push, create and delete events, supports manual
-dispatch, and reconciles every six hours. Older branches without the workflow
+dispatch, and reconciles daily. Older branches without the workflow
 file may not trigger a push run; the periodic run still includes their refs.
 GitHub can delay scheduled jobs, so the schedule is not a maximum-lag guarantee.
 Use manual dispatch when an organizational reader needs an immediate update.
@@ -195,19 +198,28 @@ Deploy keys do not expire automatically. Revoke a destination key and remove its
 matching source secret when retiring synchronization. Removing a person's
 organization membership alone does not revoke deploy keys.
 
-The workflow and script are currently copied into all five personal repositories;
+The workflow and script are currently copied into all eight personal repositories;
 they are not distributed by the root flowkit `sync.py`. When changing this
-mechanism, test the change, update all five copies while preserving each source
+mechanism, test the change, update all eight copies while preserving each source
 guard, destination and schedule, and verify a successful run for every repository.
 Update this guide and the per-repository `.github/SYNC.md` notes if behavior changes.
 
 ## Rollout evidence and references
 
 The 2026-09-03 setup finished with successful runs and exact ref comparisons for
-all five repositories. See the dated evidence in [ADR-0005](decisions/0005-asic-doe-repository-mirrors.md).
+the original five repositories. See the dated evidence in [ADR-0005](decisions/0005-asic-doe-repository-mirrors.md).
 For current status, use each source repository's Actions page rather than that
 historical verification.
 
 - [GitHub workflow triggers and scheduled-run behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
 - [GitHub deploy-key management](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)
 - [Git push ref and atomic-update semantics](https://git-scm.com/docs/git-push)
+
+## Large initial transfers
+
+GitHub rejects a single push pack larger than 2 GiB. A large standalone mirror
+may need its initial history seeded in smaller fast-forward batches before the
+normal atomic synchronization can run. Preserve all source commits and refs; do
+not work around the limit by rewriting history or forcing destination refs.
+After seeding, run the normal script and independently compare all branches and
+tags. The initial `spec2si-seeqc` transfer required this procedure.

@@ -4,7 +4,7 @@ genre: overview
 status: active
 area: top
 owner: soumyajit
-updated: 2026-10-10
+updated: 2026-11-03
 summary: The vendored source of every port's `deployment/bnl/jobs/`: an ssh round trip that cannot be corrupted by quoting (a script over stdin, values bound through quoted heredocs), the host chooser, the licence-holding process scanner, the job CLI, and the bundle the cluster side runs. This page is only the map; the implementation plan and the incident record live with spec2si-tsmc65, which wrote it.
 -->
 
@@ -18,6 +18,7 @@ the `aj` CLI drives detached jobs with it.
 |---|---|
 | `remote.py` | `Transport.run_sh(script)` — the script goes over stdin to `/bin/sh -s`, values are bound through quoted heredocs, nothing is interpolated into argv. Every result is `KNOWN`, `STALE` or `UNKNOWN`, never a guess |
 | `hosts.py` | which cluster host performs a read or runs a job, and why |
+| `calib.py` + `calibration_ledger.json` | host speed from CALIBRATION: the same work timed on every host (cited ledger runs + tracked `calibration` jobs from `jobs calibrate`), fitted as log t(suite, host) = a(suite) − s(host) on each host's fastest run. Production rates count each job's own units and never set speed (2026-11-03: they rated two identical Xeons 24× and 0.08×) |
 | `procscan.py` | the licence-holding process scanner the browser's Interactions pane shows |
 | `workflow.py` | the durable tracked-job CLI: `start / status / resume / collect / tasks`, plus `report` and `failures` for failure reports |
 | `state.py` | the local task store: intent written before dispatch, the task id as the tracker's request key (a lost acknowledgement is resolved, never resubmitted) |

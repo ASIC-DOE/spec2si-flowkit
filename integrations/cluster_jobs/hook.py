@@ -117,7 +117,8 @@ def launch_advice(command, cfg, now=None):
         survey, age = None, None
     if survey is None or age is None or age < 0 or age > SURVEY_MAX_AGE or not survey.get("picked"):
         return ("Host check: compute is being launched on %s by hand, with no host survey from the last "
-                "%d min. Cluster hosts differ ~2x in speed by CPU model and their load moves: run `%s` "
+                "%d min. Cluster hosts differ up to ~5x in calibrated speed by CPU model and their load "
+                "moves: run `%s` "
                 "(prints the best host for an N-thread job) before a long run." % (short, SURVEY_MAX_AGE // 60, cmd))
     picked = survey["picked"].split(".")[0]
     mins = int(age // 60)
@@ -505,9 +506,9 @@ def handle(event, cfg):
                        "Reuse the same key after interruption; never create another key to retry an uncertain launch. "
                        "Cross-session record paths (may include unresolved reservations): " + json.dumps(records[:20]) +
                        ("; use tasks to list all records." if len(records) > 20 else ""))
-        hosts_note = (" Choose cluster hosts by MEASUREMENT, not by load alone (hosts differ ~2x in speed "
-                      "by CPU model): a profile whose host_policy default is auto picks by measured speed "
-                      "and free threads itself; for anything launched by hand run `" + jobs_command(cfg) +
+        hosts_note = (" Choose cluster hosts by MEASUREMENT, not by load alone (hosts differ up to ~5x in "
+                      "speed by CPU model): a profile whose host_policy default is auto picks by CALIBRATED "
+                      "speed (the same work timed on every host) and free threads itself; for anything launched by hand run `" + jobs_command(cfg) +
                       " hosts --threads N --pick` first (it prints the best host for an N-thread job).")
         return context(kind, GUIDANCE + hosts_note + " Entry point: " + cfg["entrypoint"] +
                        durable +

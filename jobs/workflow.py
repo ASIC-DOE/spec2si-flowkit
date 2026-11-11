@@ -263,11 +263,11 @@ class Workflow:
         return ref, argv
 
     def pick_auto(self, policy):
-        """The `auto` host: measured speed (this profile's own finished jobs
-        -- the flow IS the profile id -- pooled across hosts with the same CPU
-        model) x room for `threads`, gated on MIN_FREE (hosts.pick). Without a
-        history the ranking is capacity, which is what `auto` always was; the
-        history only ever sharpens it. The survey is kept in `host_choice`."""
+        """The `auto` host: calibrated speed (calib.py: the same work timed on
+        every host; an uncalibrated host takes its CPU model's) x room for
+        `threads`, gated on MIN_FREE (hosts.pick). The job history is read for
+        its tracked calibration jobs; the flow (the profile id) is recorded, it
+        does not set speed. The survey is kept in `host_choice`."""
         threads = policy.get("threads")
         mode = self.profile.get("transport_mode")
         if self.host_picker is hosts.pick:

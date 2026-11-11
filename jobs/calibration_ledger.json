@@ -1,0 +1,58 @@
+{
+  "_doc": [
+    "Host calibration timings made outside the tracker (jobs/calib.py reads this beside tracked `calibration` jobs).",
+    "A suite is ONE piece of work: same input, tool build, options and thread count. Each run cites where its",
+    "number was read. elapsed_s is the TOOL'S OWN elapsed time where it reports one (a tracked job's wall time is",
+    "quantized to its polling interval: the 2026-07-21 jobs read 201 s against Spectre's 187 s). A run the source",
+    "records as taken under load carries `excluded` with the reason and is not used: contention is not speed."
+  ],
+  "suites": [
+    {
+      "name": "spectre-ams_va_drift-aps-mt14",
+      "date": "2026-07-21",
+      "work": "Spectre +aps +mt=14 on ams_va_drift.scs (13 progress units), copied per host as bench_<host>.scs; all 12 copies byte-identical (md5 bf01e7dae49e313edb74d3b564084f62, checked 2026-11-03) and every job's command identical up to the host name",
+      "where": "~/Documents/ms_pilot/analog/work/ams_bench/ (spec2si-tsmc65 cluster mirror); tracked jobs flow `bench`, target <host>",
+      "elapsed_from": "each log's 'Time used: ... elapsed = N s' line",
+      "runs": [
+        {"host": "asic1",      "elapsed_s": 196,  "source": "bench-asic1-20260721T194145Z-34c5, bench_asic1.log"},
+        {"host": "asic2",      "elapsed_s": 183,  "source": "bench-asic2-20260721T195619Z-3e08, bench_asic2.log"},
+        {"host": "asic3",      "elapsed_s": 214,  "source": "bench-asic3-20260721T194147Z-e4be, bench_asic3.log"},
+        {"host": "asic4",      "elapsed_s": 191,  "source": "bench-asic4-20260721T195956Z-ab4f, bench_asic4.log"},
+        {"host": "asic6",      "elapsed_s": 82.5, "source": "bench-asic6-20260721T194148Z-cc6c, bench_asic6.log (the day asic6 also carried queued campaign runs; the fit takes each host's fastest run)"},
+        {"host": "asic6",      "elapsed_s": 55.7, "source": "bench-asic6b-20260721T204421Z-5a80, bench_asic6b.log"},
+        {"host": "asic7",      "elapsed_s": 212,  "source": "bench-asic7-20260721T200328Z-03d2, bench_asic7.log"},
+        {"host": "asic8",      "elapsed_s": 187,  "source": "bench-asic8-20260721T200715Z-129e, bench_asic8.log"},
+        {"host": "asic9",      "elapsed_s": 181,  "source": "bench-asic9-20260721T201048Z-eb4a, bench_asic9.log"},
+        {"host": "asic10",     "elapsed_s": 147,  "source": "bench-asic10-20260721T201420Z-23b1, bench_asic10.log"},
+        {"host": "asicdesign", "elapsed_s": 324,  "source": "bench-asicdesign-20260721T194440Z-3715, bench_asicdesign.log"},
+        {"host": "pmos",       "elapsed_s": 335,  "source": "bench-pmos-20260721T195030Z-06cb, bench_pmos.log"}
+      ]
+    },
+    {
+      "name": "josim-r10f1n-n-2a34306",
+      "date": "2026-10-28",
+      "work": "JoSIM fork 2a34306 `-n` transient of the r10f1n deck; output bit-identical on the asic hosts and exxact, last digits on pmos",
+      "where": "spec2si-seeqc docs/josim-fork-benchmark.md (line 187 at c217fd9c4)",
+      "elapsed_from": "the document's wall times, as written (whole seconds)",
+      "runs": [
+        {"host": "asic6",  "elapsed_s": 18},
+        {"host": "asic2",  "elapsed_s": 53},
+        {"host": "pmos",   "elapsed_s": 84},
+        {"host": "exxact", "elapsed_s": 39, "excluded": "the source records exxact as under load"}
+      ]
+    },
+    {
+      "name": "josim-r10f1n-n-486bb3b",
+      "date": "2026-10-29",
+      "work": "JoSIM fork 486bb3b `-n` transient of the r10f1n deck; output bit-identical on the asic hosts and exxact, last digits on pmos",
+      "where": "spec2si-seeqc docs/josim-fork-benchmark.md (line 229 at 7e1c8a3cc)",
+      "elapsed_from": "the document's wall times, as written",
+      "runs": [
+        {"host": "asic6",  "elapsed_s": 17.6},
+        {"host": "asic2",  "elapsed_s": 54.1},
+        {"host": "pmos",   "elapsed_s": 77.6},
+        {"host": "exxact", "elapsed_s": 35.9, "excluded": "the section records exxact at load 2-10 (line 199 at 7e1c8a3cc)"}
+      ]
+    }
+  ]
+}
